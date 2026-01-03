@@ -1,4 +1,4 @@
-module github.com/gerund/jayz
+module github.com/gerund/jjazy
 
 go 1.21
 

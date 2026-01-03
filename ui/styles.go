@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/gerund/jayz/ui/theme"
+import "github.com/gerund/jjazy/ui/theme"
 
 // Re-export theme constants for backward compatibility
 var (

@@ -6,10 +6,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jayz/jj"
-	"github.com/gerund/jayz/ui/fixtures"
-	"github.com/gerund/jayz/ui/messages"
-	"github.com/gerund/jayz/ui/theme"
+	"github.com/gerund/jjazy/jj"
+	"github.com/gerund/jjazy/ui/fixtures"
+	"github.com/gerund/jjazy/ui/messages"
+	"github.com/gerund/jjazy/ui/theme"
 )
 
 // FilesPanel shows files changed in the current revision

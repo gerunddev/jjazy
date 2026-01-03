@@ -3,7 +3,7 @@ package jj
 import (
 	"encoding/json"
 
-	"github.com/gerund/jayz/jj/internal/ffi"
+	"github.com/gerund/jjazy/jj/internal/ffi"
 )
 
 // Repo represents an open jj repository.

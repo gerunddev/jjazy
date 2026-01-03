@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jayz/ui/borders"
-	"github.com/gerund/jayz/ui/theme"
+	"github.com/gerund/jjazy/ui/borders"
+	"github.com/gerund/jjazy/ui/theme"
 )
 
 // HelpOverlay is a floating window showing help information
@@ -102,7 +102,7 @@ func (h *HelpOverlay) renderHelp() string {
 		Bold(true).
 		Foreground(theme.ColorBlue).
 		MarginBottom(1)
-	sections = append(sections, titleStyle.Render("Jayz - Jujutsu TUI"))
+	sections = append(sections, titleStyle.Render("JJazy - Jujutsu TUI"))
 
 	// Description
 	descStyle := lipgloss.NewStyle().

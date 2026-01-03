@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerund/jayz/jj"
-	"github.com/gerund/jayz/ui/fixtures"
-	"github.com/gerund/jayz/ui/theme"
+	"github.com/gerund/jjazy/jj"
+	"github.com/gerund/jjazy/ui/fixtures"
+	"github.com/gerund/jjazy/ui/theme"
 )
 
 // StatusPanel shows workspaces and current revision info

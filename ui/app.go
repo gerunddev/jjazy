@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jayz/jj"
-	"github.com/gerund/jayz/ui/floating"
-	"github.com/gerund/jayz/ui/messages"
-	"github.com/gerund/jayz/ui/panels"
+	"github.com/gerund/jjazy/jj"
+	"github.com/gerund/jjazy/ui/floating"
+	"github.com/gerund/jjazy/ui/messages"
+	"github.com/gerund/jjazy/ui/panels"
 )
 
 // PanelBound defines the screen coordinates of a panel for mouse detection
@@ -403,7 +403,7 @@ func min(a, b int) int {
 // diffWithDifftastic uses difftastic to create a syntax-aware diff
 func (a *App) diffWithDifftastic(path string, before, after string) (string, error) {
 	// Create temp directory for diff files
-	tmpDir, err := os.MkdirTemp("", "jayz-diff-*")
+	tmpDir, err := os.MkdirTemp("", "jjazy-diff-*")
 	if err != nil {
 		return "", err
 	}

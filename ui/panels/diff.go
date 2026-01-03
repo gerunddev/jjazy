@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerund/jayz/jj"
-	"github.com/gerund/jayz/ui/borders"
-	"github.com/gerund/jayz/ui/theme"
+	"github.com/gerund/jjazy/jj"
+	"github.com/gerund/jjazy/ui/borders"
+	"github.com/gerund/jjazy/ui/theme"
 )
 
 // DiffViewer shows the diff/patch content with syntax highlighting

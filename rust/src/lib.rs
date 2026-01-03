@@ -112,12 +112,12 @@ fn create_user_settings() -> Result<UserSettings, String> {
         ConfigSource::Default,
         r#"
         [user]
-        name = "jayz"
-        email = "jayz@localhost"
+        name = "jjazy"
+        email = "jjazy@localhost"
 
         [operation]
         hostname = "localhost"
-        username = "jayz"
+        username = "jjazy"
 
         [signing]
         behavior = "drop"

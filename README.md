@@ -1,4 +1,4 @@
-# JayZ = Lazy(git) + JJ
+# JJazy = JJ + Lazy(git)
 
 > Lazygit inspired TUI for Jujutsu.
 
