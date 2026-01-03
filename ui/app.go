@@ -32,8 +32,10 @@ type App struct {
 	diffViewer      *panels.DiffViewer
 
 	// Floating windows
-	logOverlay *floating.LogOverlay
-	showLog    bool
+	logOverlay  *floating.LogOverlay
+	helpOverlay *floating.HelpOverlay
+	showLog     bool
+	showHelp    bool
 
 	// State
 	focusedPanel int // 0=diff, 1=status, 2=files, 3=bookmarks, 4=operations
@@ -49,6 +51,7 @@ type App struct {
 
 // NewApp creates a new application
 func NewApp(repo *jj.Repo) *App {
+	keys := DefaultKeyMap()
 	app := &App{
 		repo:            repo,
 		statusPanel:     panels.NewStatusPanel(repo),
@@ -57,8 +60,9 @@ func NewApp(repo *jj.Repo) *App {
 		operationsPanel: panels.NewOperationsPanel(repo),
 		diffViewer:      panels.NewDiffViewer(repo),
 		logOverlay:      floating.NewLogOverlay(repo),
+		helpOverlay:     floating.NewHelpOverlay(&keys),
 		focusedPanel:    2, // Files panel
-		keys:            DefaultKeyMap(),
+		keys:            keys,
 		help:            help.New(),
 	}
 
@@ -104,7 +108,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleMouse(msg)
 
 	case tea.KeyMsg:
-		// Handle floating log first if visible
+		// Handle floating help first if visible
+		if a.showHelp {
+			switch {
+			case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.Help):
+				a.showHelp = false
+				return a, nil
+			case key.Matches(msg, a.keys.Quit):
+				return a, tea.Quit
+			default:
+				_, cmd := a.helpOverlay.Update(msg)
+				return a, cmd
+			}
+		}
+
+		// Handle floating log if visible
 		if a.showLog {
 			switch {
 			case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.ToggleLog):
@@ -128,7 +146,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, a.keys.Help):
-			a.help.ShowAll = !a.help.ShowAll
+			a.showHelp = true
 			return a, nil
 
 		case key.Matches(msg, a.keys.Panel0):
@@ -207,8 +225,10 @@ func (a *App) View() string {
 	// Combine main + help
 	fullView := lipgloss.JoinVertical(lipgloss.Left, main, helpBar)
 
-	// Overlay floating log if visible
-	if a.showLog {
+	// Overlay floating windows if visible (help takes priority over log)
+	if a.showHelp {
+		fullView = a.overlayHelp(fullView)
+	} else if a.showLog {
 		fullView = a.overlayLog(fullView)
 	}
 
@@ -305,10 +325,11 @@ func (a *App) updateLayout() {
 		{X1: 0, Y1: operationsY, X2: sidebarWidth - 1, Y2: operationsY + operationsHeight - 1, PanelIndex: 4},  // Operations
 	}
 
-	// Set log overlay size to full screen
-	logWidth := a.width
-	logHeight := a.height - 1 // Leave room for help bar
-	a.logOverlay.SetSize(logWidth, logHeight)
+	// Set overlay sizes to full screen
+	overlayWidth := a.width
+	overlayHeight := a.height - 1 // Leave room for help bar
+	a.logOverlay.SetSize(overlayWidth, overlayHeight)
+	a.helpOverlay.SetSize(overlayWidth, overlayHeight)
 }
 
 func (a *App) renderHelpBar() string {
@@ -338,6 +359,24 @@ func (a *App) overlayLog(background string) string {
 	for i, logLine := range logLines {
 		if i >= 0 && i < len(bgLines) {
 			bgLines[i] = logLine
+		}
+	}
+
+	return strings.Join(bgLines, "\n")
+}
+
+func (a *App) overlayHelp(background string) string {
+	// Render help overlay at full screen
+	helpView := a.helpOverlay.View()
+
+	// Replace background with help view (full overlay)
+	bgLines := strings.Split(background, "\n")
+	helpLines := strings.Split(helpView, "\n")
+
+	// Replace background lines with help lines starting from the top
+	for i, helpLine := range helpLines {
+		if i >= 0 && i < len(bgLines) {
+			bgLines[i] = helpLine
 		}
 	}
 
@@ -388,6 +427,23 @@ func (a *App) fetchRevisionDiff(revisionID string) tea.Cmd {
 
 // handleMouse processes mouse events for panel focus and interaction
 func (a *App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// If help overlay is visible, handle mouse there first
+	if a.showHelp {
+		// Check if click is outside help overlay to dismiss it
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// For now, any click while help is visible dismisses it
+			// Could be improved to check if click is inside overlay
+			a.showHelp = false
+			return a, nil
+		}
+		// Forward scroll events to help overlay
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			_, cmd := a.helpOverlay.Update(msg)
+			return a, cmd
+		}
+		return a, nil
+	}
+
 	// If log overlay is visible, handle mouse there first
 	if a.showLog {
 		// Check if click is outside log overlay to dismiss it
