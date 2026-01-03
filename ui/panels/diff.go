@@ -6,31 +6,37 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jayz/ui/fixtures"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/theme"
 )
 
 // DiffViewer shows the diff/patch content with syntax highlighting
 type DiffViewer struct {
 	BasePanel
+	repo     *jj.Repo
 	viewport viewport.Model
 	content  string
 	ready    bool
 }
 
 // NewDiffViewer creates a new diff viewer panel
-func NewDiffViewer() *DiffViewer {
+func NewDiffViewer(repo *jj.Repo) *DiffViewer {
 	d := &DiffViewer{
 		BasePanel: NewBasePanel("Diff", "changes"),
+		repo:      repo,
 	}
 	d.loadDiff()
 	return d
 }
 
 func (d *DiffViewer) loadDiff() {
-	// TODO: Replace with actual jj-lib call
-	// d.content = d.repo.GetDiff(revisionID)
-	d.content = fixtures.DiffContent
+	// Get diff from jj-lib
+	diff, err := d.repo.Diff()
+	if err != nil {
+		d.content = ""
+		return
+	}
+	d.content = diff
 }
 
 // SetContent updates the diff content

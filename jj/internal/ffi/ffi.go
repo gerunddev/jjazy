@@ -44,6 +44,91 @@ func ListBranches(repo RepoPtr) ([]byte, error) {
 	return []byte(C.GoString(result.data)), nil
 }
 
+// ListWorkspaces returns JSON-encoded workspace data from the repository
+func ListWorkspaces(repo RepoPtr) ([]byte, error) {
+	result := C.jj_list_workspaces((*C.RepoHandle)(repo))
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return nil, errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return nil, errors.New("no data returned")
+	}
+
+	return []byte(C.GoString(result.data)), nil
+}
+
+// GetWorkingCopyChanges returns JSON-encoded file change data from the repository
+func GetWorkingCopyChanges(repo RepoPtr) ([]byte, error) {
+	result := C.jj_get_working_copy_changes((*C.RepoHandle)(repo))
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return nil, errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return nil, errors.New("no data returned")
+	}
+
+	return []byte(C.GoString(result.data)), nil
+}
+
+// ListOperations returns JSON-encoded operation data from the repository
+func ListOperations(repo RepoPtr) ([]byte, error) {
+	result := C.jj_list_operations((*C.RepoHandle)(repo))
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return nil, errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return nil, errors.New("no data returned")
+	}
+
+	return []byte(C.GoString(result.data)), nil
+}
+
+// GetLog returns JSON-encoded revision log data from the repository
+func GetLog(repo RepoPtr) ([]byte, error) {
+	result := C.jj_get_log((*C.RepoHandle)(repo))
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return nil, errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return nil, errors.New("no data returned")
+	}
+
+	return []byte(C.GoString(result.data)), nil
+}
+
+// GetDiff returns the unified diff for the working copy
+func GetDiff(repo RepoPtr) (string, error) {
+	result := C.jj_get_diff((*C.RepoHandle)(repo))
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return "", errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return "", nil
+	}
+
+	return C.GoString(result.data), nil
+}
+
 // CloseRepo closes a repository handle
 func CloseRepo(repo RepoPtr) {
 	if repo != nil {

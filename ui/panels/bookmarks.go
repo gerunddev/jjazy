@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/theme"
 )
@@ -11,22 +12,40 @@ import (
 // BookmarksPanel shows bookmarks (branches)
 type BookmarksPanel struct {
 	BasePanel
+	repo      *jj.Repo
 	bookmarks []fixtures.Bookmark
 }
 
 // NewBookmarksPanel creates a new bookmarks panel
-func NewBookmarksPanel() *BookmarksPanel {
+func NewBookmarksPanel(repo *jj.Repo) *BookmarksPanel {
 	p := &BookmarksPanel{
 		BasePanel: NewBasePanel("3 Bookmarks", "branches"),
+		repo:      repo,
 	}
 	p.loadBookmarks()
 	return p
 }
 
 func (p *BookmarksPanel) loadBookmarks() {
-	// TODO: Replace with actual jj-lib call
-	// p.bookmarks = p.repo.ListBookmarks()
-	p.bookmarks = fixtures.Bookmarks
+	// Get branches from jj-lib
+	branches, err := p.repo.Branches()
+	if err != nil {
+		// Fall back to empty list on error
+		p.bookmarks = nil
+		return
+	}
+
+	// Convert jj.Branch to fixtures.Bookmark
+	p.bookmarks = make([]fixtures.Bookmark, len(branches))
+	for i, b := range branches {
+		p.bookmarks[i] = fixtures.Bookmark{
+			Name:    b.Name,
+			IsLocal: b.IsLocal,
+			// TODO: Get these from jj-lib when available
+			RevisionID: "",
+			IsCurrent:  false,
+		}
+	}
 }
 
 func (p *BookmarksPanel) Init() tea.Cmd {

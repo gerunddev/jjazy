@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/theme"
 )
@@ -11,22 +12,39 @@ import (
 // OperationsPanel shows operation history (undo stack)
 type OperationsPanel struct {
 	BasePanel
+	repo       *jj.Repo
 	operations []fixtures.Operation
 }
 
 // NewOperationsPanel creates a new operations panel
-func NewOperationsPanel() *OperationsPanel {
+func NewOperationsPanel(repo *jj.Repo) *OperationsPanel {
 	p := &OperationsPanel{
 		BasePanel: NewBasePanel("4 Operations", "undo"),
+		repo:      repo,
 	}
 	p.loadOperations()
 	return p
 }
 
 func (p *OperationsPanel) loadOperations() {
-	// TODO: Replace with actual jj-lib call
-	// p.operations = p.repo.ListOperations()
-	p.operations = fixtures.Operations
+	// Get operations from jj-lib
+	ops, err := p.repo.Operations()
+	if err != nil {
+		// Fall back to empty list on error
+		p.operations = nil
+		return
+	}
+
+	// Convert jj.Operation to fixtures.Operation
+	p.operations = make([]fixtures.Operation, len(ops))
+	for i, op := range ops {
+		p.operations[i] = fixtures.Operation{
+			ID:          op.ID,
+			Description: op.Description,
+			Timestamp:   op.Timestamp, // Unix timestamp (TODO: format as relative time)
+			IsCurrent:   op.IsCurrent,
+		}
+	}
 }
 
 func (p *OperationsPanel) Init() tea.Cmd {

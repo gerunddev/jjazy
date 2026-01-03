@@ -1384,10 +1384,13 @@ dependencies = [
 name = "jjbridge"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "jj-lib",
  "libc",
+ "pollster",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

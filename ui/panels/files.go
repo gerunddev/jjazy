@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/theme"
 )
@@ -12,22 +13,46 @@ import (
 // FilesPanel shows files changed in the current revision
 type FilesPanel struct {
 	BasePanel
+	repo  *jj.Repo
 	files []fixtures.FileChange
 }
 
 // NewFilesPanel creates a new files panel
-func NewFilesPanel() *FilesPanel {
+func NewFilesPanel(repo *jj.Repo) *FilesPanel {
 	p := &FilesPanel{
 		BasePanel: NewBasePanel("2 Files", "changes"),
+		repo:      repo,
 	}
 	p.loadFiles()
 	return p
 }
 
 func (p *FilesPanel) loadFiles() {
-	// TODO: Replace with actual jj-lib call
-	// p.files = p.repo.GetWorkingCopyChanges()
-	p.files = fixtures.Files
+	// Get file changes from jj-lib
+	changes, err := p.repo.WorkingCopyChanges()
+	if err != nil {
+		// Fall back to empty list on error
+		p.files = nil
+		return
+	}
+
+	// Convert jj.FileChange to fixtures.FileChange
+	p.files = make([]fixtures.FileChange, len(changes))
+	for i, fc := range changes {
+		var status fixtures.FileStatus
+		switch fc.Status {
+		case "added":
+			status = fixtures.StatusAdded
+		case "deleted":
+			status = fixtures.StatusDeleted
+		default:
+			status = fixtures.StatusModified
+		}
+		p.files[i] = fixtures.FileChange{
+			Path:   fc.Path,
+			Status: status,
+		}
+	}
 }
 
 func (p *FilesPanel) Init() tea.Cmd {

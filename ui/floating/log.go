@@ -7,12 +7,14 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/theme"
 )
 
 // LogOverlay is a floating window showing the revision graph
 type LogOverlay struct {
+	repo      *jj.Repo
 	viewport  viewport.Model
 	revisions []fixtures.Revision
 	cursor    int
@@ -22,16 +24,40 @@ type LogOverlay struct {
 }
 
 // NewLogOverlay creates a new floating log window
-func NewLogOverlay() *LogOverlay {
-	l := &LogOverlay{}
+func NewLogOverlay(repo *jj.Repo) *LogOverlay {
+	l := &LogOverlay{repo: repo}
 	l.loadRevisions()
 	return l
 }
 
 func (l *LogOverlay) loadRevisions() {
-	// TODO: Replace with actual jj-lib call
-	// l.revisions = l.repo.GetLog()
-	l.revisions = fixtures.Log
+	// Get revisions from jj-lib
+	revs, err := l.repo.Log()
+	if err != nil {
+		// Fall back to empty list on error
+		l.revisions = nil
+		return
+	}
+
+	// Convert jj.Revision to fixtures.Revision
+	l.revisions = make([]fixtures.Revision, len(revs))
+	for i, rev := range revs {
+		wsName := ""
+		if rev.WorkspaceName != nil {
+			wsName = *rev.WorkspaceName
+		}
+		l.revisions[i] = fixtures.Revision{
+			ID:            rev.ID,
+			ChangeID:      rev.ChangeID,
+			Description:   rev.Description,
+			Author:        rev.Author,
+			Timestamp:     rev.Timestamp, // Unix timestamp (TODO: format as relative time)
+			IsWorkingCopy: rev.IsWorkingCopy,
+			WorkspaceName: wsName,
+			IsRoot:        rev.IsRoot,
+			Parents:       rev.Parents,
+		}
+	}
 }
 
 func (l *LogOverlay) Init() tea.Cmd {

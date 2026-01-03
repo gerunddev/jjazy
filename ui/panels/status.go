@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/theme"
 )
@@ -12,22 +13,41 @@ import (
 // StatusPanel shows workspaces and current revision info
 type StatusPanel struct {
 	BasePanel
+	repo       *jj.Repo
 	workspaces []fixtures.Workspace
 }
 
 // NewStatusPanel creates a new status panel
-func NewStatusPanel() *StatusPanel {
+func NewStatusPanel(repo *jj.Repo) *StatusPanel {
 	p := &StatusPanel{
 		BasePanel: NewBasePanel("1 Status", "workspaces"),
+		repo:      repo,
 	}
 	p.loadWorkspaces()
 	return p
 }
 
 func (p *StatusPanel) loadWorkspaces() {
-	// TODO: Replace with actual jj-lib call
-	// p.workspaces = p.repo.ListWorkspaces()
-	p.workspaces = fixtures.Workspaces
+	// Get workspaces from jj-lib
+	workspaces, err := p.repo.Workspaces()
+	if err != nil {
+		// Fall back to empty list on error
+		p.workspaces = nil
+		return
+	}
+
+	// Convert jj.Workspace to fixtures.Workspace
+	p.workspaces = make([]fixtures.Workspace, len(workspaces))
+	for i, ws := range workspaces {
+		p.workspaces[i] = fixtures.Workspace{
+			Name:       ws.Name,
+			IsCurrent:  ws.IsCurrent,
+			RevisionID: ws.CommitID[:8], // Short commit ID
+			// TODO: Get these from jj-lib when available
+			ChangeID:    "",
+			Description: "",
+		}
+	}
 }
 
 func (p *StatusPanel) Init() tea.Cmd {

@@ -7,12 +7,16 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/floating"
 	"github.com/gerund/jayz/ui/panels"
 )
 
 // App is the main application model
 type App struct {
+	// Repository
+	repo *jj.Repo
+
 	// Panels
 	statusPanel     *panels.StatusPanel
 	filesPanel      *panels.FilesPanel
@@ -34,14 +38,15 @@ type App struct {
 }
 
 // NewApp creates a new application
-func NewApp() *App {
+func NewApp(repo *jj.Repo) *App {
 	app := &App{
-		statusPanel:     panels.NewStatusPanel(),
-		filesPanel:      panels.NewFilesPanel(),
-		bookmarksPanel:  panels.NewBookmarksPanel(),
-		operationsPanel: panels.NewOperationsPanel(),
-		diffViewer:      panels.NewDiffViewer(),
-		logOverlay:      floating.NewLogOverlay(),
+		repo:            repo,
+		statusPanel:     panels.NewStatusPanel(repo),
+		filesPanel:      panels.NewFilesPanel(repo),
+		bookmarksPanel:  panels.NewBookmarksPanel(repo),
+		operationsPanel: panels.NewOperationsPanel(repo),
+		diffViewer:      panels.NewDiffViewer(repo),
+		logOverlay:      floating.NewLogOverlay(repo),
 		focusedPanel:    0,
 		keys:            DefaultKeyMap(),
 		help:            help.New(),

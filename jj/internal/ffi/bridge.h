@@ -20,6 +20,26 @@ RepoHandle* jj_open_repo(const char* path);
 // Returns JjResult with JSON array of branch info
 JjResult jj_list_branches(RepoHandle* handle);
 
+// List workspaces in the repository
+// Returns JjResult with JSON array of workspace info
+JjResult jj_list_workspaces(RepoHandle* handle);
+
+// Get working copy file changes
+// Returns JjResult with JSON array of file change info
+JjResult jj_get_working_copy_changes(RepoHandle* handle);
+
+// List operations in the repository
+// Returns JjResult with JSON array of operation info
+JjResult jj_list_operations(RepoHandle* handle);
+
+// Get revision log
+// Returns JjResult with JSON array of revision info
+JjResult jj_get_log(RepoHandle* handle);
+
+// Get diff for working copy
+// Returns JjResult with unified diff string
+JjResult jj_get_diff(RepoHandle* handle);
+
 // Close a repository handle and free its memory
 void jj_close_repo(RepoHandle* handle);
 
