@@ -51,6 +51,14 @@ struct FileChangeInfo {
     status: String, // "modified", "added", "deleted"
 }
 
+/// File contents for before/after comparison
+#[derive(Serialize)]
+struct FileContents {
+    before: String,
+    after: String,
+    path: String,
+}
+
 /// Operation information for serialization
 #[derive(Serialize)]
 struct OperationInfo {
@@ -840,6 +848,103 @@ pub extern "C" fn jj_get_file_diff(handle: *mut RepoHandle, path: *const c_char)
     });
 
     JjResult::success(diff_output)
+}
+
+/// Get the before/after content for a file in the working copy
+/// Returns JjResult with JSON containing before and after content
+#[no_mangle]
+pub extern "C" fn jj_get_file_contents(
+    handle: *mut RepoHandle,
+    path: *const c_char,
+) -> JjResult {
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &*handle
+    };
+
+    let path_str = unsafe {
+        if path.is_null() {
+            return JjResult::error("null path".to_string());
+        }
+        match CStr::from_ptr(path).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid UTF-8: {}", e)),
+        }
+    };
+
+    // Find the current workspace's working copy commit
+    let wc_commit_id = match handle
+        .repo
+        .view()
+        .wc_commit_ids()
+        .iter()
+        .find(|(ws_id, _)| ws_id.as_str() == handle.current_workspace)
+    {
+        Some((_, commit_id)) => commit_id.clone(),
+        None => return JjResult::error("No working copy found for current workspace".to_string()),
+    };
+
+    // Get the working copy commit
+    let wc_commit: Commit = match handle.repo.store().get_commit(&wc_commit_id) {
+        Ok(commit) => commit,
+        Err(e) => return JjResult::error(format!("Failed to get working copy commit: {}", e)),
+    };
+
+    // Get the parent commit(s)
+    let parent_ids = wc_commit.parent_ids();
+    if parent_ids.is_empty() {
+        // No parent, return empty before content
+        let contents = FileContents {
+            before: String::new(),
+            after: String::new(),
+            path: path_str.to_string(),
+        };
+        return match serde_json::to_string(&contents) {
+            Ok(json) => JjResult::success(json),
+            Err(e) => JjResult::error(format!("JSON serialization failed: {}", e)),
+        };
+    }
+
+    let parent_commit: Commit = match handle.repo.store().get_commit(&parent_ids[0]) {
+        Ok(commit) => commit,
+        Err(e) => return JjResult::error(format!("Failed to get parent commit: {}", e)),
+    };
+
+    // Build a repo path
+    let repo_path = match jj_lib::repo_path::RepoPathBuf::from_internal_string(path_str) {
+        Ok(p) => p,
+        Err(e) => return JjResult::error(format!("Invalid path: {:?}", e)),
+    };
+
+    // Get trees for comparison
+    let parent_tree: MergedTree = parent_commit.tree();
+    let wc_tree: MergedTree = wc_commit.tree();
+
+    // Get the file content at this path from both trees
+    let before_value = match parent_tree.path_value(&repo_path) {
+        Ok(v) => v,
+        Err(e) => return JjResult::error(format!("Failed to get before value: {}", e)),
+    };
+    let after_value = match wc_tree.path_value(&repo_path) {
+        Ok(v) => v,
+        Err(e) => return JjResult::error(format!("Failed to get after value: {}", e)),
+    };
+
+    let before_content = get_file_content(&handle.repo, &before_value);
+    let after_content = get_file_content(&handle.repo, &after_value);
+
+    let contents = FileContents {
+        before: before_content,
+        after: after_content,
+        path: path_str.to_string(),
+    };
+
+    match serde_json::to_string(&contents) {
+        Ok(json) => JjResult::success(json),
+        Err(e) => JjResult::error(format!("JSON serialization failed: {}", e)),
+    }
 }
 
 /// Get diff for a revision compared to its parent

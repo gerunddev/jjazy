@@ -100,6 +100,20 @@ func (r *Repo) FileDiff(path string) (string, error) {
 	return ffi.GetFileDiff(r.ptr, path)
 }
 
+// FileContents returns the before/after contents of a specific file.
+func (r *Repo) FileContents(path string) (*FileContents, error) {
+	data, err := ffi.GetFileContents(r.ptr, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var contents FileContents
+	if err := json.Unmarshal(data, &contents); err != nil {
+		return nil, err
+	}
+	return &contents, nil
+}
+
 // RevisionDiff returns the unified diff for a revision compared to its parent.
 func (r *Repo) RevisionDiff(revisionID string) (string, error) {
 	return ffi.GetRevisionDiff(r.ptr, revisionID)

@@ -149,6 +149,26 @@ func GetFileDiff(repo RepoPtr, path string) (string, error) {
 	return C.GoString(result.data), nil
 }
 
+// GetFileContents returns JSON-encoded before/after file contents
+func GetFileContents(repo RepoPtr, path string) ([]byte, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	result := C.jj_get_file_contents((*C.RepoHandle)(repo), cpath)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return nil, errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return nil, errors.New("no data returned")
+	}
+
+	return []byte(C.GoString(result.data)), nil
+}
+
 // GetRevisionDiff returns the unified diff for a revision compared to its parent
 func GetRevisionDiff(repo RepoPtr, revisionID string) (string, error) {
 	crevID := C.CString(revisionID)

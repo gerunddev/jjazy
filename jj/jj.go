@@ -23,6 +23,13 @@ type FileChange struct {
 	Status string `json:"status"` // "modified", "added", "deleted"
 }
 
+// FileContents represents before/after file contents for diffing.
+type FileContents struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+	Path   string `json:"path"`
+}
+
 // Operation represents an operation in the undo history.
 type Operation struct {
 	ID          string `json:"id"`

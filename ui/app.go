@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -397,16 +400,72 @@ func min(a, b int) int {
 	return b
 }
 
+// diffWithDifftastic uses difftastic to create a syntax-aware diff
+func (a *App) diffWithDifftastic(path string, before, after string) (string, error) {
+	// Create temp directory for diff files
+	tmpDir, err := os.MkdirTemp("", "jayz-diff-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Use the original filename to help difftastic detect the file type
+	baseName := filepath.Base(path)
+	beforePath := filepath.Join(tmpDir, "before_"+baseName)
+	afterPath := filepath.Join(tmpDir, "after_"+baseName)
+
+	// Write file contents to temp files
+	if err := os.WriteFile(beforePath, []byte(before), 0644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(afterPath, []byte(after), 0644); err != nil {
+		return "", err
+	}
+
+	// Invoke difftastic
+	cmd := exec.Command("difft", "--color=always", beforePath, afterPath)
+	output, err := cmd.Output()
+	if err != nil {
+		// difftastic may exit with non-zero status on diffs, check if we got output
+		if len(output) > 0 {
+			return string(output), nil
+		}
+		return "", err
+	}
+
+	return string(output), nil
+}
+
 // fetchFileDiff fetches the diff for a specific file
 func (a *App) fetchFileDiff(path string) tea.Cmd {
 	return func() tea.Msg {
 		if path == "" {
 			return nil
 		}
-		diff, err := a.repo.FileDiff(path)
-		if err != nil {
-			diff = "Error: " + err.Error()
+
+		// Try to use difftastic if available
+		var diff string
+		var err error
+
+		// Check if difftastic is available
+		if _, lookErr := exec.LookPath("difft"); lookErr == nil {
+			// Get file contents for difftastic
+			contents, contentsErr := a.repo.FileContents(path)
+			if contentsErr == nil {
+				diff, err = a.diffWithDifftastic(path, contents.Before, contents.After)
+			} else {
+				err = contentsErr
+			}
 		}
+
+		// Fallback to regular diff if difftastic fails or is not available
+		if err != nil || diff == "" {
+			diff, err = a.repo.FileDiff(path)
+			if err != nil {
+				diff = "Error: " + err.Error()
+			}
+		}
+
 		return messages.DiffContentMsg{Content: diff, Title: "Diff: " + path}
 	}
 }

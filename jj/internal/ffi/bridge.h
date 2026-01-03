@@ -44,6 +44,10 @@ JjResult jj_get_diff(RepoHandle* handle);
 // Returns JjResult with unified diff string
 JjResult jj_get_file_diff(RepoHandle* handle, const char* path);
 
+// Get before/after file contents
+// Returns JjResult with JSON containing before and after content
+JjResult jj_get_file_contents(RepoHandle* handle, const char* path);
+
 // Get diff for a revision compared to its parent
 // Returns JjResult with unified diff string
 JjResult jj_get_revision_diff(RepoHandle* handle, const char* revision_id);
