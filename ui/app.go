@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/floating"
+	"github.com/gerund/jayz/ui/messages"
 	"github.com/gerund/jayz/ui/panels"
 )
 
@@ -71,6 +72,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.updateLayout()
 		a.ready = true
+		return a, nil
+
+	case messages.FileSelectedMsg:
+		// Fetch diff for selected file
+		return a, a.fetchFileDiff(msg.Path)
+
+	case messages.RevisionSelectedMsg:
+		// Fetch diff for selected revision
+		return a, a.fetchRevisionDiff(msg.RevisionID)
+
+	case messages.DiffContentMsg:
+		// Update DiffViewer with new content
+		a.diffViewer.SetContent(msg.Content)
 		return a, nil
 
 	case tea.KeyMsg:
@@ -300,4 +314,32 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// fetchFileDiff fetches the diff for a specific file
+func (a *App) fetchFileDiff(path string) tea.Cmd {
+	return func() tea.Msg {
+		if path == "" {
+			return nil
+		}
+		diff, err := a.repo.FileDiff(path)
+		if err != nil {
+			diff = "Error: " + err.Error()
+		}
+		return messages.DiffContentMsg{Content: diff, Title: "Diff: " + path}
+	}
+}
+
+// fetchRevisionDiff fetches the diff for a revision compared to its parent
+func (a *App) fetchRevisionDiff(revisionID string) tea.Cmd {
+	return func() tea.Msg {
+		if revisionID == "" {
+			return nil
+		}
+		diff, err := a.repo.RevisionDiff(revisionID)
+		if err != nil {
+			diff = "Error: " + err.Error()
+		}
+		return messages.DiffContentMsg{Content: diff, Title: "Diff: " + revisionID}
+	}
 }

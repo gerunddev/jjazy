@@ -40,6 +40,14 @@ JjResult jj_get_log(RepoHandle* handle);
 // Returns JjResult with unified diff string
 JjResult jj_get_diff(RepoHandle* handle);
 
+// Get diff for a specific file in working copy
+// Returns JjResult with unified diff string
+JjResult jj_get_file_diff(RepoHandle* handle, const char* path);
+
+// Get diff for a revision compared to its parent
+// Returns JjResult with unified diff string
+JjResult jj_get_revision_diff(RepoHandle* handle, const char* revision_id);
+
 // Close a repository handle and free its memory
 void jj_close_repo(RepoHandle* handle);
 

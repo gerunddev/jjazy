@@ -479,8 +479,14 @@ pub extern "C" fn jj_get_log(handle: *mut RepoHandle) -> JjResult {
 
         // Get author info
         let signature = commit.author();
-        let author = signature.name.clone();
-        let timestamp = format!("{}", signature.timestamp.timestamp.0);
+        let author = signature.email.clone();
+
+        // Format timestamp as date + time
+        let commit_ts_secs = signature.timestamp.timestamp.0 / 1000;
+        let datetime = chrono::DateTime::from_timestamp(commit_ts_secs, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let timestamp = datetime;
 
         // Check if this is a working copy commit
         let workspace_name = workspace_commits.get(&commit_id_hex).cloned();
@@ -694,6 +700,265 @@ fn generate_unified_diff(before: &str, after: &str) -> String {
     }
 
     result
+}
+
+/// Get diff for a specific file in the working copy
+/// Returns JjResult with unified diff string on success
+#[no_mangle]
+pub extern "C" fn jj_get_file_diff(handle: *mut RepoHandle, path: *const c_char) -> JjResult {
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &*handle
+    };
+
+    let path_str = unsafe {
+        if path.is_null() {
+            return JjResult::error("null path".to_string());
+        }
+        match CStr::from_ptr(path).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid UTF-8: {}", e)),
+        }
+    };
+
+    // Find the current workspace's working copy commit
+    let wc_commit_id = match handle
+        .repo
+        .view()
+        .wc_commit_ids()
+        .iter()
+        .find(|(ws_id, _)| ws_id.as_str() == handle.current_workspace)
+    {
+        Some((_, commit_id)) => commit_id.clone(),
+        None => return JjResult::error("No working copy found for current workspace".to_string()),
+    };
+
+    // Get the working copy commit
+    let wc_commit: Commit = match handle.repo.store().get_commit(&wc_commit_id) {
+        Ok(commit) => commit,
+        Err(e) => return JjResult::error(format!("Failed to get working copy commit: {}", e)),
+    };
+
+    // Get the parent commit(s)
+    let parent_ids = wc_commit.parent_ids();
+    if parent_ids.is_empty() {
+        return JjResult::success("".to_string());
+    }
+
+    let parent_commit: Commit = match handle.repo.store().get_commit(&parent_ids[0]) {
+        Ok(commit) => commit,
+        Err(e) => return JjResult::error(format!("Failed to get parent commit: {}", e)),
+    };
+
+    // Get trees for comparison
+    let parent_tree: MergedTree = parent_commit.tree();
+    let wc_tree: MergedTree = wc_commit.tree();
+
+    // Build a matcher for just this file
+    let repo_path = match jj_lib::repo_path::RepoPathBuf::from_internal_string(path_str) {
+        Ok(p) => p,
+        Err(e) => return JjResult::error(format!("Invalid path: {:?}", e)),
+    };
+    let matcher = jj_lib::matchers::FilesMatcher::new(vec![repo_path]);
+
+    // Collect diff output
+    let mut diff_output = String::new();
+
+    let diff_stream = parent_tree.diff_stream(&wc_tree, &matcher);
+
+    pollster::block_on(async {
+        use futures_util::StreamExt;
+        futures_util::pin_mut!(diff_stream);
+
+        while let Some(entry) = diff_stream.next().await {
+            let diff_values = match entry.values {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let entry_path = entry.path.as_internal_file_string();
+
+            // Determine the change type
+            let before_is_file = !diff_values.before.is_absent();
+            let after_is_file = !diff_values.after.is_absent();
+
+            if before_is_file && after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", entry_path, entry_path));
+                diff_output.push_str(&format!("--- a/{}\n", entry_path));
+                diff_output.push_str(&format!("+++ b/{}\n", entry_path));
+
+                let before_content = get_file_content(&handle.repo, &diff_values.before);
+                let after_content = get_file_content(&handle.repo, &diff_values.after);
+
+                let diff_lines = generate_unified_diff(&before_content, &after_content);
+                diff_output.push_str(&diff_lines);
+            } else if !before_is_file && after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", entry_path, entry_path));
+                diff_output.push_str("new file\n");
+                diff_output.push_str("--- /dev/null\n");
+                diff_output.push_str(&format!("+++ b/{}\n", entry_path));
+
+                let after_content = get_file_content(&handle.repo, &diff_values.after);
+                for line in after_content.lines() {
+                    diff_output.push_str(&format!("+{}\n", line));
+                }
+            } else if before_is_file && !after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", entry_path, entry_path));
+                diff_output.push_str("deleted file\n");
+                diff_output.push_str(&format!("--- a/{}\n", entry_path));
+                diff_output.push_str("+++ /dev/null\n");
+
+                let before_content = get_file_content(&handle.repo, &diff_values.before);
+                for line in before_content.lines() {
+                    diff_output.push_str(&format!("-{}\n", line));
+                }
+            }
+        }
+    });
+
+    JjResult::success(diff_output)
+}
+
+/// Get diff for a revision compared to its parent
+/// Returns JjResult with unified diff string on success
+#[no_mangle]
+pub extern "C" fn jj_get_revision_diff(handle: *mut RepoHandle, revision_id: *const c_char) -> JjResult {
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &*handle
+    };
+
+    let revision_str = unsafe {
+        if revision_id.is_null() {
+            return JjResult::error("null revision_id".to_string());
+        }
+        match CStr::from_ptr(revision_id).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid UTF-8: {}", e)),
+        }
+    };
+
+    // Find the commit by ID prefix - walk from working copy commits
+    let commit = {
+        use std::collections::HashSet;
+        let mut found: Option<Commit> = None;
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut to_visit: Vec<jj_lib::backend::CommitId> = Vec::new();
+
+        // Start from all working copy commits
+        for (_ws_id, commit_id) in handle.repo.view().wc_commit_ids() {
+            to_visit.push(commit_id.clone());
+        }
+
+        while let Some(commit_id) = to_visit.pop() {
+            let hex = commit_id.hex();
+            if visited.contains(&hex) {
+                continue;
+            }
+            visited.insert(hex.clone());
+
+            if hex.starts_with(revision_str) {
+                match handle.repo.store().get_commit(&commit_id) {
+                    Ok(c) => {
+                        found = Some(c);
+                        break;
+                    }
+                    Err(_) => continue,
+                }
+            }
+
+            // Add parents to visit
+            if let Ok(c) = handle.repo.store().get_commit(&commit_id) {
+                for parent_id in c.parent_ids() {
+                    if !visited.contains(&parent_id.hex()) {
+                        to_visit.push(parent_id.clone());
+                    }
+                }
+            }
+        }
+
+        match found {
+            Some(c) => c,
+            None => return JjResult::error(format!("Revision not found: {}", revision_str)),
+        }
+    };
+
+    // Get the parent commit(s)
+    let parent_ids = commit.parent_ids();
+    if parent_ids.is_empty() {
+        return JjResult::success("".to_string());
+    }
+
+    let parent_commit: Commit = match handle.repo.store().get_commit(&parent_ids[0]) {
+        Ok(c) => c,
+        Err(e) => return JjResult::error(format!("Failed to get parent commit: {}", e)),
+    };
+
+    // Get trees for comparison
+    let parent_tree: MergedTree = parent_commit.tree();
+    let commit_tree: MergedTree = commit.tree();
+
+    // Collect diff output
+    let mut diff_output = String::new();
+    let matcher = EverythingMatcher;
+
+    let diff_stream = parent_tree.diff_stream(&commit_tree, &matcher);
+
+    pollster::block_on(async {
+        use futures_util::StreamExt;
+        futures_util::pin_mut!(diff_stream);
+
+        while let Some(entry) = diff_stream.next().await {
+            let diff_values = match entry.values {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let path = entry.path.as_internal_file_string();
+
+            let before_is_file = !diff_values.before.is_absent();
+            let after_is_file = !diff_values.after.is_absent();
+
+            if before_is_file && after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", path, path));
+                diff_output.push_str(&format!("--- a/{}\n", path));
+                diff_output.push_str(&format!("+++ b/{}\n", path));
+
+                let before_content = get_file_content(&handle.repo, &diff_values.before);
+                let after_content = get_file_content(&handle.repo, &diff_values.after);
+
+                let diff_lines = generate_unified_diff(&before_content, &after_content);
+                diff_output.push_str(&diff_lines);
+            } else if !before_is_file && after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", path, path));
+                diff_output.push_str("new file\n");
+                diff_output.push_str("--- /dev/null\n");
+                diff_output.push_str(&format!("+++ b/{}\n", path));
+
+                let after_content = get_file_content(&handle.repo, &diff_values.after);
+                for line in after_content.lines() {
+                    diff_output.push_str(&format!("+{}\n", line));
+                }
+            } else if before_is_file && !after_is_file {
+                diff_output.push_str(&format!("diff --git a/{} b/{}\n", path, path));
+                diff_output.push_str("deleted file\n");
+                diff_output.push_str(&format!("--- a/{}\n", path));
+                diff_output.push_str("+++ /dev/null\n");
+
+                let before_content = get_file_content(&handle.repo, &diff_values.before);
+                for line in before_content.lines() {
+                    diff_output.push_str(&format!("-{}\n", line));
+                }
+            }
+            diff_output.push('\n');
+        }
+    });
+
+    JjResult::success(diff_output)
 }
 
 /// Close a repository handle and free its memory

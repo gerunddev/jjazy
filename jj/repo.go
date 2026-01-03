@@ -95,6 +95,16 @@ func (r *Repo) Diff() (string, error) {
 	return ffi.GetDiff(r.ptr)
 }
 
+// FileDiff returns the unified diff for a specific file in the working copy.
+func (r *Repo) FileDiff(path string) (string, error) {
+	return ffi.GetFileDiff(r.ptr, path)
+}
+
+// RevisionDiff returns the unified diff for a revision compared to its parent.
+func (r *Repo) RevisionDiff(revisionID string) (string, error) {
+	return ffi.GetRevisionDiff(r.ptr, revisionID)
+}
+
 // Close closes the repository and frees associated resources.
 func (r *Repo) Close() {
 	if r.ptr != nil {

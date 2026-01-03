@@ -129,6 +129,46 @@ func GetDiff(repo RepoPtr) (string, error) {
 	return C.GoString(result.data), nil
 }
 
+// GetFileDiff returns the unified diff for a specific file in the working copy
+func GetFileDiff(repo RepoPtr, path string) (string, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	result := C.jj_get_file_diff((*C.RepoHandle)(repo), cpath)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return "", errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return "", nil
+	}
+
+	return C.GoString(result.data), nil
+}
+
+// GetRevisionDiff returns the unified diff for a revision compared to its parent
+func GetRevisionDiff(repo RepoPtr, revisionID string) (string, error) {
+	crevID := C.CString(revisionID)
+	defer C.free(unsafe.Pointer(crevID))
+
+	result := C.jj_get_revision_diff((*C.RepoHandle)(repo), crevID)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return "", errors.New(errMsg)
+	}
+
+	if result.data == nil {
+		return "", nil
+	}
+
+	return C.GoString(result.data), nil
+}
+
 // CloseRepo closes a repository handle
 func CloseRepo(repo RepoPtr) {
 	if repo != nil {

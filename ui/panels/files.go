@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
+	"github.com/gerund/jayz/ui/messages"
 	"github.com/gerund/jayz/ui/theme"
 )
 
@@ -64,6 +65,8 @@ func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, nil
 	}
 
+	prevCursor := p.cursor
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -75,6 +78,15 @@ func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.CursorHome()
 		case "G", "end":
 			p.CursorEnd(len(p.files))
+		}
+	}
+
+	// Emit selection message if cursor changed
+	if p.cursor != prevCursor {
+		if file := p.SelectedFile(); file != nil {
+			return p, func() tea.Msg {
+				return messages.FileSelectedMsg{Path: file.Path}
+			}
 		}
 	}
 

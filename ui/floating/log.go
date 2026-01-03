@@ -9,6 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
 	"github.com/gerund/jayz/ui/fixtures"
+	"github.com/gerund/jayz/ui/graph"
+	"github.com/gerund/jayz/ui/messages"
+	"github.com/gerund/jayz/ui/prefix"
 	"github.com/gerund/jayz/ui/theme"
 )
 
@@ -21,6 +24,10 @@ type LogOverlay struct {
 	width     int
 	height    int
 	ready     bool
+
+	// Unique prefix highlighting
+	changeIDPrefixes   *prefix.IDSet
+	revisionIDPrefixes *prefix.IDSet
 }
 
 // NewLogOverlay creates a new floating log window
@@ -41,6 +48,9 @@ func (l *LogOverlay) loadRevisions() {
 
 	// Convert jj.Revision to fixtures.Revision
 	l.revisions = make([]fixtures.Revision, len(revs))
+	changeIDs := make([]string, len(revs))
+	revisionIDs := make([]string, len(revs))
+
 	for i, rev := range revs {
 		wsName := ""
 		if rev.WorkspaceName != nil {
@@ -57,7 +67,13 @@ func (l *LogOverlay) loadRevisions() {
 			IsRoot:        rev.IsRoot,
 			Parents:       rev.Parents,
 		}
+		changeIDs[i] = rev.ChangeID
+		revisionIDs[i] = rev.ID
 	}
+
+	// Compute unique prefixes for ID highlighting
+	l.changeIDPrefixes = prefix.NewIDSet(changeIDs)
+	l.revisionIDPrefixes = prefix.NewIDSet(revisionIDs)
 }
 
 func (l *LogOverlay) Init() tea.Cmd {
@@ -92,6 +108,13 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			l.viewport.HalfViewUp()
 		case "pgdown", "ctrl+d":
 			l.viewport.HalfViewDown()
+		case "enter":
+			// Select revision and emit message
+			if rev := l.SelectedRevision(); rev != nil {
+				return l, func() tea.Msg {
+					return messages.RevisionSelectedMsg{RevisionID: rev.ID}
+				}
+			}
 		}
 	}
 
@@ -105,8 +128,8 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (l *LogOverlay) ensureCursorVisible() {
-	// Each revision takes 2-3 lines, estimate position
-	linePos := l.cursor * 2
+	// Each revision takes 3 lines (2 content + 1 separator, except last)
+	linePos := l.cursor * 3
 	if linePos < l.viewport.YOffset {
 		l.viewport.SetYOffset(linePos)
 	} else if linePos >= l.viewport.YOffset+l.viewport.Height-2 {
@@ -145,32 +168,45 @@ func (l *LogOverlay) renderLog() string {
 	contentWidth := l.width - 6 // borders + padding + graph margin
 
 	for i, rev := range l.revisions {
-		// Build graph characters
-		var graphChar string
-		if rev.IsWorkingCopy {
-			graphChar = theme.WorkingCopyStyle.Render("@")
-		} else if rev.IsRoot {
-			graphChar = theme.DimmedStyle.Render("◆")
+		isLast := i == len(l.revisions)-1
+
+		// Use graph package for consistent symbols
+		revInfo := graph.RevisionInfo{
+			ID:            rev.ID,
+			Parents:       rev.Parents,
+			IsWorkingCopy: rev.IsWorkingCopy,
+			IsRoot:        rev.IsRoot,
+		}
+		graphChar, connector := graph.Simple(revInfo, isLast,
+			theme.WorkingCopyStyle,
+			theme.DimmedStyle, // Use dimmed for normal commits (◉)
+			theme.DimmedStyle, // Use dimmed for root (◆)
+			theme.DimmedStyle, // Connector line style
+		)
+
+		// Line 1: graph + changeID + email + timestamp + revID [+ workspace marker]
+		// Use unique prefix highlighting for IDs
+		var changeID, revID string
+		if l.changeIDPrefixes != nil {
+			changeID = l.changeIDPrefixes.Format(rev.ChangeID, theme.ChangeIDPrefixStyle, theme.ChangeIDRestStyle)
 		} else {
-			graphChar = theme.DimmedStyle.Render("○")
+			changeID = theme.ChangeIDStyle.Render(rev.ChangeID)
+		}
+		if l.revisionIDPrefixes != nil {
+			revID = l.revisionIDPrefixes.Format(rev.ID, theme.RevisionIDPrefixStyle, theme.RevisionIDRestStyle)
+		} else {
+			revID = theme.RevisionIDStyle.Render(rev.ID)
 		}
 
-		// Connect lines
-		connector := "│"
-		if i == len(l.revisions)-1 {
-			connector = " "
-		}
-
-		// First line: graph + change ID + workspace marker
-		changeID := theme.ChangeIDStyle.Render(rev.ChangeID)
-		revID := theme.RevisionIDStyle.Render(rev.ID)
+		email := theme.AuthorStyle.Render(rev.Author)
+		timestamp := theme.TimestampStyle.Render(rev.Timestamp)
 
 		var wsMarker string
 		if rev.IsWorkingCopy && rev.WorkspaceName != "" {
 			wsMarker = " " + theme.WorkingCopyStyle.Render(rev.WorkspaceName+"@")
 		}
 
-		line1 := fmt.Sprintf("%s %s %s%s", graphChar, changeID, revID, wsMarker)
+		line1 := fmt.Sprintf("%s %s %s %s %s%s", graphChar, changeID, email, timestamp, revID, wsMarker)
 
 		// Highlight selected line
 		if i == l.cursor {
@@ -179,7 +215,7 @@ func (l *LogOverlay) renderLog() string {
 
 		lines = append(lines, line1)
 
-		// Second line: connector + description
+		// Line 2: connector + description (white)
 		desc := rev.Description
 		if len(desc) > contentWidth-4 {
 			desc = desc[:contentWidth-7] + "..."
@@ -192,20 +228,12 @@ func (l *LogOverlay) renderLog() string {
 			styledDesc = theme.NormalItemStyle.Render(desc)
 		}
 
-		line2 := theme.DimmedStyle.Render(connector) + " " + styledDesc
+		line2 := connector + " " + styledDesc
 		lines = append(lines, line2)
 
-		// Third line: connector + author + timestamp
-		meta := fmt.Sprintf("%s %s",
-			theme.AuthorStyle.Render(rev.Author),
-			theme.TimestampStyle.Render(rev.Timestamp),
-		)
-		line3 := theme.DimmedStyle.Render(connector) + " " + meta
-		lines = append(lines, line3)
-
 		// Empty line between revisions (except last)
-		if i < len(l.revisions)-1 {
-			lines = append(lines, theme.DimmedStyle.Render(connector))
+		if !isLast {
+			lines = append(lines, connector)
 		}
 	}
 
