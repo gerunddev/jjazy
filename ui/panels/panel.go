@@ -2,8 +2,7 @@ package panels
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jayz/ui/theme"
+	"github.com/gerund/jayz/ui/borders"
 )
 
 // Panel defines the interface for all sidebar panels
@@ -71,10 +70,10 @@ func (b *BasePanel) SetCursor(c int) {
 	b.cursor = c
 }
 
-// ContentHeight returns the height available for content (minus borders and title)
+// ContentHeight returns the height available for content (minus borders)
 func (b *BasePanel) ContentHeight() int {
-	// Account for top border, title line, and bottom border
-	return b.height - 3
+	// With titled borders, title is IN the border, so just subtract top + bottom borders
+	return b.height - 2
 }
 
 // ContentWidth returns the width available for content (minus borders)
@@ -83,30 +82,9 @@ func (b *BasePanel) ContentWidth() int {
 	return b.width - 2
 }
 
-// RenderFrame renders the panel frame with title and content
+// RenderFrame renders the panel frame with title embedded in border
 func (b *BasePanel) RenderFrame(content string) string {
-	var style lipgloss.Style
-	var titleStyle lipgloss.Style
-
-	if b.focused {
-		style = theme.FocusedBorder.
-			Width(b.width).
-			Height(b.height)
-		titleStyle = theme.FocusedTitleStyle
-	} else {
-		style = theme.UnfocusedBorder.
-			Width(b.width).
-			Height(b.height)
-		titleStyle = theme.TitleStyle
-	}
-
-	// Render title
-	title := titleStyle.Render(b.title)
-
-	// Combine title and content
-	fullContent := lipgloss.JoinVertical(lipgloss.Left, title, content)
-
-	return style.Render(fullContent)
+	return borders.RenderTitledBorder(content, b.title, b.width, b.height, b.focused)
 }
 
 // CursorUp moves the cursor up within bounds

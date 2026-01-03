@@ -83,13 +83,13 @@ var (
 	ChangeIDStyle    = lipgloss.NewStyle().Foreground(ColorMagenta)
 	AuthorStyle      = lipgloss.NewStyle().Foreground(ColorYellow)
 	TimestampStyle   = lipgloss.NewStyle().Foreground(ColorBlue)
-	WorkingCopyStyle = lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
+	WorkingCopyStyle = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
 
 	// Unique prefix highlighting styles (for jj-style ID display)
-	// Prefix: colored, Rest: grey/dimmed
-	ChangeIDPrefixStyle   = lipgloss.NewStyle().Foreground(ColorMagenta)
+	// Prefix: colored and bold, Rest: grey/dimmed
+	ChangeIDPrefixStyle   = lipgloss.NewStyle().Foreground(ColorMagenta).Bold(true)
 	ChangeIDRestStyle     = lipgloss.NewStyle().Foreground(ColorDimWhite)
-	RevisionIDPrefixStyle = lipgloss.NewStyle().Foreground(ColorOrange)
+	RevisionIDPrefixStyle = lipgloss.NewStyle().Foreground(ColorOrange).Bold(true)
 	RevisionIDRestStyle   = lipgloss.NewStyle().Foreground(ColorDimWhite)
 )
 

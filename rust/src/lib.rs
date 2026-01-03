@@ -68,6 +68,8 @@ struct RevisionInfo {
     description: String,
     author: String,
     timestamp: String,
+    bookmarks: Vec<String>,
+    git_head: bool,
     is_working_copy: bool,
     workspace_name: Option<String>,
     is_root: bool,
@@ -474,7 +476,8 @@ pub extern "C" fn jj_get_log(handle: *mut RepoHandle) -> JjResult {
         visited.insert(commit_id_hex.clone());
 
         let is_root = commit_id_hex == root_commit_id;
-        let change_id = commit.change_id().hex();
+        // Use reverse_hex() for change IDs to get the base32-like encoding (e.g., "pmyysvqp")
+        let change_id = commit.change_id().reverse_hex();
         let description = commit.description().to_string();
 
         // Get author info
@@ -495,12 +498,30 @@ pub extern "C" fn jj_get_log(handle: *mut RepoHandle) -> JjResult {
         // Get parent commit IDs
         let parents: Vec<String> = commit.parent_ids().iter().map(|id| id.hex()).collect();
 
+        // Get bookmarks for this commit
+        let mut bookmarks: Vec<String> = Vec::new();
+        let mut git_head = false;
+
+        for (name, target) in handle.repo.view().local_bookmarks() {
+            if target.added_ids().any(|id| id == commit.id()) {
+                bookmarks.push(name.as_str().to_string());
+            }
+        }
+
+        // Check if this commit is at git HEAD
+        let git_head_ref = handle.repo.view().git_head();
+        if git_head_ref.added_ids().any(|id| id == commit.id()) {
+            git_head = true;
+        }
+
         revisions.push(RevisionInfo {
             id: commit_id_hex[..12].to_string(),
             change_id: change_id[..12].to_string(),
             description,
             author,
             timestamp,
+            bookmarks,
+            git_head,
             is_working_copy,
             workspace_name,
             is_root,

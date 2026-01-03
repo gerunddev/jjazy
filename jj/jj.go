@@ -38,6 +38,8 @@ type Revision struct {
 	Description   string   `json:"description"`
 	Author        string   `json:"author"`
 	Timestamp     string   `json:"timestamp"`
+	Bookmarks     []string `json:"bookmarks"`
+	GitHead       bool     `json:"git_head"`
 	IsWorkingCopy bool     `json:"is_working_copy"`
 	WorkspaceName *string  `json:"workspace_name"`
 	IsRoot        bool     `json:"is_root"`

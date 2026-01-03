@@ -9,7 +9,7 @@ import (
 // Symbols used for graph rendering (jj-style)
 const (
 	SymbolWorkingCopy = "@"
-	SymbolCommit      = "◉"
+	SymbolCommit      = "○"
 	SymbolRoot        = "◆"
 	SymbolVertical    = "│"
 	SymbolMergeLeft   = "├"

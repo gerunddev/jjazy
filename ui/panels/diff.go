@@ -1,12 +1,13 @@
 package panels
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
+	"github.com/gerund/jayz/ui/borders"
 	"github.com/gerund/jayz/ui/theme"
 )
 
@@ -22,7 +23,7 @@ type DiffViewer struct {
 // NewDiffViewer creates a new diff viewer panel
 func NewDiffViewer(repo *jj.Repo) *DiffViewer {
 	d := &DiffViewer{
-		BasePanel: NewBasePanel("Diff", "changes"),
+		BasePanel: NewBasePanel("0 Diff", "changes"),
 		repo:      repo,
 	}
 	d.loadDiff()
@@ -55,6 +56,15 @@ func (d *DiffViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle scroll wheel for viewport
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			d.viewport.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			d.viewport.LineDown(3)
+		}
+
 	case tea.KeyMsg:
 		if d.focused {
 			switch msg.String() {
@@ -100,12 +110,18 @@ func (d *DiffViewer) SetSize(width, height int) {
 	} else {
 		d.viewport.Width = contentWidth
 		d.viewport.Height = contentHeight
+		d.viewport.SetContent(d.renderDiff())
 	}
 }
 
 // renderDiff applies syntax highlighting to the diff content
 func (d *DiffViewer) renderDiff() string {
 	var lines []string
+	// Use contentWidth - 1 to add a safety margin and prevent overflow
+	maxWidth := d.ContentWidth()
+	if maxWidth > 0 {
+		maxWidth = maxWidth - 1
+	}
 
 	for _, line := range strings.Split(d.content, "\n") {
 		var styled string
@@ -113,25 +129,25 @@ func (d *DiffViewer) renderDiff() string {
 		switch {
 		case strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- "):
 			// File headers
-			styled = theme.DimmedStyle.Bold(true).Render(line)
+			styled = theme.DimmedStyle.Bold(true).MaxWidth(maxWidth).Render(line)
 		case strings.HasPrefix(line, "@@"):
 			// Hunk headers
-			styled = theme.DiffHunkHeader.Render(line)
+			styled = theme.DiffHunkHeader.MaxWidth(maxWidth).Render(line)
 		case strings.HasPrefix(line, "+"):
 			// Added lines
-			styled = theme.DiffAddLine.Render(line)
+			styled = theme.DiffAddLine.MaxWidth(maxWidth).Render(line)
 		case strings.HasPrefix(line, "-"):
 			// Removed lines
-			styled = theme.DiffRemoveLine.Render(line)
+			styled = theme.DiffRemoveLine.MaxWidth(maxWidth).Render(line)
 		case strings.HasPrefix(line, "diff --git"):
 			// Diff header
-			styled = theme.DimmedStyle.Bold(true).Render(line)
+			styled = theme.DimmedStyle.Bold(true).MaxWidth(maxWidth).Render(line)
 		case strings.HasPrefix(line, "index "):
 			// Index line
-			styled = theme.DimmedStyle.Render(line)
+			styled = theme.DimmedStyle.MaxWidth(maxWidth).Render(line)
 		default:
 			// Context lines
-			styled = theme.DiffContextLine.Render(line)
+			styled = theme.DiffContextLine.MaxWidth(maxWidth).Render(line)
 		}
 
 		lines = append(lines, styled)
@@ -140,37 +156,16 @@ func (d *DiffViewer) renderDiff() string {
 	return strings.Join(lines, "\n")
 }
 
-// RenderFrame overrides to use different styling for the main diff panel
+// RenderFrame overrides to use titled border for the main diff panel
 func (d *DiffViewer) RenderFrame(content string) string {
-	var style lipgloss.Style
-	var titleStyle lipgloss.Style
-
-	if d.focused {
-		style = theme.FocusedBorder.
-			Width(d.width).
-			Height(d.height)
-		titleStyle = theme.FocusedTitleStyle
-	} else {
-		style = theme.UnfocusedBorder.
-			Width(d.width).
-			Height(d.height)
-		titleStyle = theme.TitleStyle
-	}
-
-	// Render title with scroll position
+	// Build title with scroll percentage if applicable
 	title := d.title
 	if d.ready && d.viewport.TotalLineCount() > d.viewport.Height {
 		scrollPercent := int(d.viewport.ScrollPercent() * 100)
-		title = d.title + " " + theme.DimmedStyle.Render(
-			lipgloss.NewStyle().Render("("+string(rune('0'+scrollPercent/10))+string(rune('0'+scrollPercent%10))+"%)"),
-		)
+		title = fmt.Sprintf("%s (%d%%)", d.title, scrollPercent)
 	}
-	renderedTitle := titleStyle.Render(title)
 
-	// Combine title and content
-	fullContent := lipgloss.JoinVertical(lipgloss.Left, renderedTitle, content)
-
-	return style.Render(fullContent)
+	return borders.RenderTitledBorder(content, title, d.width, d.height, d.focused)
 }
 
 // Ensure DiffViewer implements Panel

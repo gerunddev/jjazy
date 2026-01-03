@@ -12,6 +12,7 @@ type KeyMap struct {
 	Escape     key.Binding
 
 	// Panel navigation
+	Panel0     key.Binding
 	Panel1     key.Binding
 	Panel2     key.Binding
 	Panel3     key.Binding
@@ -56,6 +57,10 @@ func DefaultKeyMap() KeyMap {
 		),
 
 		// Panel navigation
+		Panel0: key.NewBinding(
+			key.WithKeys("0"),
+			key.WithHelp("0", "diff"),
+		),
 		Panel1: key.NewBinding(
 			key.WithKeys("1"),
 			key.WithHelp("1", "status"),
@@ -139,7 +144,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 // FullHelp returns all keybindings for the help screen
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Panel1, k.Panel2, k.Panel3, k.Panel4},
+		{k.Panel0, k.Panel1, k.Panel2, k.Panel3, k.Panel4},
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Enter, k.Space, k.Edit, k.Delete},
 		{k.ToggleLog, k.Escape, k.Help, k.Quit},

@@ -3,6 +3,7 @@ package panels
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
@@ -14,8 +15,10 @@ import (
 // FilesPanel shows files changed in the current revision
 type FilesPanel struct {
 	BasePanel
-	repo  *jj.Repo
-	files []fixtures.FileChange
+	repo     *jj.Repo
+	files    []fixtures.FileChange
+	viewport viewport.Model
+	ready    bool
 }
 
 // NewFilesPanel creates a new files panel
@@ -61,24 +64,54 @@ func (p *FilesPanel) Init() tea.Cmd {
 }
 
 func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if !p.focused {
-		return p, nil
-	}
-
 	prevCursor := p.cursor
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle mouse events even when not focused
+		switch msg.Button {
+		case tea.MouseButtonLeft:
+			if msg.Action == tea.MouseActionPress {
+				// Convert Y to item index (subtract 1 for top border, add viewport offset)
+				itemIndex := msg.Y - 1 + p.viewport.YOffset
+				if itemIndex >= 0 && itemIndex < len(p.files) {
+					p.cursor = itemIndex
+					p.ensureCursorVisible()
+				}
+			}
+		case tea.MouseButtonWheelUp:
+			p.viewport.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			p.viewport.LineDown(3)
+		}
+
 	case tea.KeyMsg:
+		if !p.focused {
+			return p, nil
+		}
 		switch msg.String() {
 		case "up", "k":
 			p.CursorUp(len(p.files))
+			p.ensureCursorVisible()
 		case "down", "j":
 			p.CursorDown(len(p.files))
+			p.ensureCursorVisible()
 		case "g", "home":
 			p.CursorHome()
+			p.viewport.GotoTop()
 		case "G", "end":
 			p.CursorEnd(len(p.files))
+			p.viewport.GotoBottom()
+		case "ctrl+u", "pgup":
+			p.viewport.HalfViewUp()
+		case "ctrl+d", "pgdown":
+			p.viewport.HalfViewDown()
 		}
+	}
+
+	// Update viewport content when cursor changes
+	if p.ready {
+		p.viewport.SetContent(p.renderContent())
 	}
 
 	// Emit selection message if cursor changed
@@ -93,17 +126,44 @@ func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, nil
 }
 
-func (p *FilesPanel) View() string {
-	var lines []string
+func (p *FilesPanel) ensureCursorVisible() {
+	if p.cursor < p.viewport.YOffset {
+		p.viewport.SetYOffset(p.cursor)
+	} else if p.cursor >= p.viewport.YOffset+p.viewport.Height {
+		p.viewport.SetYOffset(p.cursor - p.viewport.Height + 1)
+	}
+}
 
+func (p *FilesPanel) View() string {
+	if !p.ready {
+		return p.RenderFrame("Loading...")
+	}
+	return p.RenderFrame(p.viewport.View())
+}
+
+// SetSize initializes or resizes the viewport
+func (p *FilesPanel) SetSize(width, height int) {
+	p.BasePanel.SetSize(width, height)
+
+	contentWidth := p.ContentWidth()
 	contentHeight := p.ContentHeight()
+
+	if !p.ready {
+		p.viewport = viewport.New(contentWidth, contentHeight)
+		p.viewport.SetContent(p.renderContent())
+		p.ready = true
+	} else {
+		p.viewport.Width = contentWidth
+		p.viewport.Height = contentHeight
+		p.viewport.SetContent(p.renderContent())
+	}
+}
+
+func (p *FilesPanel) renderContent() string {
+	var lines []string
 	contentWidth := p.ContentWidth()
 
 	for i, file := range p.files {
-		if i >= contentHeight {
-			break
-		}
-
 		// Style the status indicator based on file status
 		var statusStyle lipgloss.Style
 		switch file.Status {
@@ -123,33 +183,24 @@ func (p *FilesPanel) View() string {
 
 		status := statusStyle.Render(file.Status.String())
 
+		// Truncate path if needed
+		maxPathLen := contentWidth - 3 // status + space
 		path := file.Path
+		if len(path) > maxPathLen && maxPathLen > 0 {
+			path = truncate(path, maxPathLen)
+		}
+
 		if i == p.cursor && p.focused {
 			path = theme.SelectedItemStyle.Render(path)
 		} else {
 			path = theme.NormalItemStyle.Render(path)
 		}
 
-		// Truncate path if needed
-		maxPathLen := contentWidth - 3 // status + space
-		if len(file.Path) > maxPathLen {
-			path = theme.NormalItemStyle.Render(truncate(file.Path, maxPathLen))
-			if i == p.cursor && p.focused {
-				path = theme.SelectedItemStyle.Render(truncate(file.Path, maxPathLen))
-			}
-		}
-
 		line := status + " " + path
 		lines = append(lines, line)
 	}
 
-	// Pad remaining space
-	for len(lines) < contentHeight {
-		lines = append(lines, "")
-	}
-
-	content := strings.Join(lines, "\n")
-	return p.RenderFrame(content)
+	return strings.Join(lines, "\n")
 }
 
 // SelectedFile returns the currently selected file
@@ -158,6 +209,11 @@ func (p *FilesPanel) SelectedFile() *fixtures.FileChange {
 		return &p.files[p.cursor]
 	}
 	return nil
+}
+
+// Count returns the number of files
+func (p *FilesPanel) Count() int {
+	return len(p.files)
 }
 
 // Ensure FilesPanel implements Panel

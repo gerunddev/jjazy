@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jayz/jj"
+	"github.com/gerund/jayz/ui/borders"
 	"github.com/gerund/jayz/ui/fixtures"
 	"github.com/gerund/jayz/ui/graph"
 	"github.com/gerund/jayz/ui/messages"
@@ -62,16 +63,27 @@ func (l *LogOverlay) loadRevisions() {
 			Description:   rev.Description,
 			Author:        rev.Author,
 			Timestamp:     rev.Timestamp, // Unix timestamp (TODO: format as relative time)
+			Bookmarks:     rev.Bookmarks,
+			GitHead:       rev.GitHead,
 			IsWorkingCopy: rev.IsWorkingCopy,
 			WorkspaceName: wsName,
 			IsRoot:        rev.IsRoot,
 			Parents:       rev.Parents,
 		}
-		changeIDs[i] = rev.ChangeID
-		revisionIDs[i] = rev.ID
+		// Store truncated IDs (8 chars) for unique prefix calculation
+		changeID := rev.ChangeID
+		if len(changeID) > 8 {
+			changeID = changeID[:8]
+		}
+		revID := rev.ID
+		if len(revID) > 8 {
+			revID = revID[:8]
+		}
+		changeIDs[i] = changeID
+		revisionIDs[i] = revID
 	}
 
-	// Compute unique prefixes for ID highlighting
+	// Compute unique prefixes for ID highlighting (on truncated 8-char IDs)
 	l.changeIDPrefixes = prefix.NewIDSet(changeIDs)
 	l.revisionIDPrefixes = prefix.NewIDSet(revisionIDs)
 }
@@ -84,6 +96,15 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle scroll wheel for viewport
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			l.viewport.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			l.viewport.LineDown(3)
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -128,12 +149,12 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (l *LogOverlay) ensureCursorVisible() {
-	// Each revision takes 3 lines (2 content + 1 separator, except last)
-	linePos := l.cursor * 3
+	// Each revision takes 2 lines (graph+metadata line, description line)
+	linePos := l.cursor * 2
 	if linePos < l.viewport.YOffset {
 		l.viewport.SetYOffset(linePos)
 	} else if linePos >= l.viewport.YOffset+l.viewport.Height-2 {
-		l.viewport.SetYOffset(linePos - l.viewport.Height + 3)
+		l.viewport.SetYOffset(linePos - l.viewport.Height + 2)
 	}
 }
 
@@ -149,8 +170,9 @@ func (l *LogOverlay) SetSize(width, height int) {
 	l.width = width
 	l.height = height
 
-	contentWidth := width - 4  // borders + padding
-	contentHeight := height - 4 // borders + title + padding
+	// With titled borders: just top and bottom borders (title is in top border)
+	contentWidth := width - 2
+	contentHeight := height - 2
 
 	if !l.ready {
 		l.viewport = viewport.New(contentWidth, contentHeight)
@@ -165,10 +187,15 @@ func (l *LogOverlay) SetSize(width, height int) {
 
 func (l *LogOverlay) renderLog() string {
 	var lines []string
-	contentWidth := l.width - 6 // borders + padding + graph margin
 
 	for i, rev := range l.revisions {
 		isLast := i == len(l.revisions)-1
+
+		// Root commit: just show "~" with no other info
+		if rev.IsRoot {
+			lines = append(lines, theme.DimmedStyle.Render("~"))
+			continue
+		}
 
 		// Use graph package for consistent symbols
 		revInfo := graph.RevisionInfo{
@@ -179,86 +206,175 @@ func (l *LogOverlay) renderLog() string {
 		}
 		graphChar, connector := graph.Simple(revInfo, isLast,
 			theme.WorkingCopyStyle,
-			theme.DimmedStyle, // Use dimmed for normal commits (◉)
+			theme.DimmedStyle, // Use dimmed for normal commits (○)
 			theme.DimmedStyle, // Use dimmed for root (◆)
 			theme.DimmedStyle, // Connector line style
 		)
 
-		// Line 1: graph + changeID + email + timestamp + revID [+ workspace marker]
-		// Use unique prefix highlighting for IDs
-		var changeID, revID string
-		if l.changeIDPrefixes != nil {
-			changeID = l.changeIDPrefixes.Format(rev.ChangeID, theme.ChangeIDPrefixStyle, theme.ChangeIDRestStyle)
-		} else {
-			changeID = theme.ChangeIDStyle.Render(rev.ChangeID)
+		// Override symbol to ◆ (blue) if this revision has the "main" bookmark
+		hasMain := false
+		for _, bookmark := range rev.Bookmarks {
+			if bookmark == "main" {
+				hasMain = true
+				break
+			}
 		}
-		if l.revisionIDPrefixes != nil {
-			revID = l.revisionIDPrefixes.Format(rev.ID, theme.RevisionIDPrefixStyle, theme.RevisionIDRestStyle)
-		} else {
-			revID = theme.RevisionIDStyle.Render(rev.ID)
+		if hasMain {
+			mainStyle := lipgloss.NewStyle().Foreground(theme.ColorBlue)
+			graphChar = mainStyle.Render("◆")
 		}
 
-		email := theme.AuthorStyle.Render(rev.Author)
-		timestamp := theme.TimestampStyle.Render(rev.Timestamp)
+		// Line 1: graph + changeID(8 chars) + email + timestamp + bookmarks + revID(8 chars) [+ workspace marker]
+		// Use unique prefix highlighting for IDs
+		var changeID, revID string
+
+		// Truncate change ID to 8 characters
+		shortChangeID := rev.ChangeID
+		if len(shortChangeID) > 8 {
+			shortChangeID = shortChangeID[:8]
+		}
+		// Apply bold to styles if working copy
+		changeIDPrefixStyle := theme.ChangeIDPrefixStyle
+		changeIDRestStyle := theme.ChangeIDRestStyle
+		changeIDBaseStyle := theme.ChangeIDStyle
+		if rev.IsWorkingCopy {
+			changeIDPrefixStyle = changeIDPrefixStyle.Bold(true)
+			changeIDRestStyle = changeIDRestStyle.Bold(true)
+			changeIDBaseStyle = changeIDBaseStyle.Bold(true)
+		}
+		if l.changeIDPrefixes != nil {
+			changeID = l.changeIDPrefixes.Format(shortChangeID, changeIDPrefixStyle, changeIDRestStyle)
+		} else {
+			changeID = changeIDBaseStyle.Render(shortChangeID)
+		}
+
+		// Truncate revision ID to 8 characters
+		shortRevID := rev.ID
+		if len(shortRevID) > 8 {
+			shortRevID = shortRevID[:8]
+		}
+		revIDPrefixStyle := theme.RevisionIDPrefixStyle
+		revIDRestStyle := theme.RevisionIDRestStyle
+		revIDBaseStyle := theme.RevisionIDStyle
+		if rev.IsWorkingCopy {
+			revIDPrefixStyle = revIDPrefixStyle.Bold(true)
+			revIDRestStyle = revIDRestStyle.Bold(true)
+			revIDBaseStyle = revIDBaseStyle.Bold(true)
+		}
+		if l.revisionIDPrefixes != nil {
+			revID = l.revisionIDPrefixes.Format(shortRevID, revIDPrefixStyle, revIDRestStyle)
+		} else {
+			revID = revIDBaseStyle.Render(shortRevID)
+		}
+
+		authorStyle := theme.AuthorStyle
+		timestampStyle := theme.TimestampStyle
+		if rev.IsWorkingCopy {
+			authorStyle = authorStyle.Bold(true)
+			timestampStyle = timestampStyle.Bold(true)
+		}
+		email := authorStyle.Render(rev.Author)
+		timestamp := timestampStyle.Render(rev.Timestamp)
+
+		// Format bookmarks and git_head
+		var bookmarksStr string
+		if rev.GitHead || len(rev.Bookmarks) > 0 {
+			var parts []string
+			if rev.GitHead {
+				gitHeadStyle := lipgloss.NewStyle().Foreground(theme.ColorGreen)
+				if rev.IsWorkingCopy {
+					gitHeadStyle = gitHeadStyle.Bold(true)
+				}
+				parts = append(parts, gitHeadStyle.Render("git_head()"))
+			}
+			if len(rev.Bookmarks) > 0 {
+				bookmarkStyle := lipgloss.NewStyle().Foreground(theme.ColorMagenta)
+				if rev.IsWorkingCopy {
+					bookmarkStyle = bookmarkStyle.Bold(true)
+				}
+				parts = append(parts, bookmarkStyle.Render(strings.Join(rev.Bookmarks, " ")))
+			}
+			bookmarksStr = " " + strings.Join(parts, " ")
+		}
 
 		var wsMarker string
 		if rev.IsWorkingCopy && rev.WorkspaceName != "" {
 			wsMarker = " " + theme.WorkingCopyStyle.Render(rev.WorkspaceName+"@")
 		}
 
-		line1 := fmt.Sprintf("%s %s %s %s %s%s", graphChar, changeID, email, timestamp, revID, wsMarker)
+		line1 := fmt.Sprintf("%s  %s %s %s%s %s%s", graphChar, changeID, email, timestamp, bookmarksStr, revID, wsMarker)
 
-		// Highlight selected line
+		// Apply selection style if this is the cursor line
 		if i == l.cursor {
 			line1 = theme.SelectedItemStyle.Render(line1)
 		}
 
 		lines = append(lines, line1)
 
-		// Line 2: connector + description (white)
-		desc := rev.Description
-		if len(desc) > contentWidth-4 {
-			desc = desc[:contentWidth-7] + "..."
-		}
-
+		// Line 2: connector + description (first line only, like jj log)
 		var styledDesc string
 		if rev.Description == "" {
-			styledDesc = theme.DimmedStyle.Italic(true).Render("(no description)")
+			descStyle := theme.DimmedStyle.Italic(true)
+			if rev.IsWorkingCopy {
+				descStyle = descStyle.Bold(true)
+			}
+			styledDesc = descStyle.Render("(no description)")
 		} else {
-			styledDesc = theme.NormalItemStyle.Render(desc)
+			// Only show first line of description
+			desc := rev.Description
+			if idx := strings.Index(desc, "\n"); idx >= 0 {
+				desc = desc[:idx]
+			}
+			descStyle := theme.NormalItemStyle
+			if rev.IsWorkingCopy {
+				descStyle = descStyle.Bold(true)
+			}
+			styledDesc = descStyle.Render(desc)
 		}
 
 		line2 := connector + " " + styledDesc
 		lines = append(lines, line2)
-
-		// Empty line between revisions (except last)
-		if !isLast {
-			lines = append(lines, connector)
-		}
 	}
 
 	return strings.Join(lines, "\n")
 }
 
 func (l *LogOverlay) renderFrame(content string) string {
-	title := theme.FloatingTitleStyle.Render(" Log ")
+	// Use lipgloss native border rendering to avoid ANSI escape sequence corruption
+	// See: https://github.com/charmbracelet/lipgloss/issues/498
 
-	// Create styled content area
-	contentStyle := lipgloss.NewStyle().
-		Width(l.width - 2).
-		Height(l.height - 3).
-		Padding(0, 1)
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.ColorYellow).
+		Width(l.width - 2).  // Account for border width
+		Height(l.height - 2) // Account for border height
 
-	styledContent := contentStyle.Render(content)
+	// Render content with border
+	bordered := borderStyle.Render(content)
 
-	// Combine title and content
-	inner := lipgloss.JoinVertical(lipgloss.Left, title, styledContent)
+	// Add title to top border
+	lines := strings.Split(bordered, "\n")
+	if len(lines) > 0 {
+		// Build custom top border with title using a styled approach
+		borderColorStyle := lipgloss.NewStyle().Foreground(theme.ColorYellow)
+		styledTitle := theme.FloatingTitleStyle.Render(" Log ")
 
-	// Apply floating window style
-	return theme.FloatingWindowStyle.
-		Width(l.width).
-		Height(l.height).
-		Render(inner)
+		titleWidth := lipgloss.Width(styledTitle)
+		// Total: TopLeft(1) + Horizontal(1) + Title + Horizontal*(N) + TopRight(1) = width
+		// So: 3 + titleWidth + N = width => N = width - 3 - titleWidth
+		remainingWidth := l.width - 3 - titleWidth
+		if remainingWidth < 0 {
+			remainingWidth = 0
+		}
+
+		topBorder := borderColorStyle.Render(borders.TopLeft+borders.Horizontal) +
+			styledTitle +
+			borderColorStyle.Render(strings.Repeat(borders.Horizontal, remainingWidth)+borders.TopRight)
+
+		lines[0] = topBorder
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // SelectedRevision returns the currently selected revision
@@ -267,4 +383,10 @@ func (l *LogOverlay) SelectedRevision() *fixtures.Revision {
 		return &l.revisions[l.cursor]
 	}
 	return nil
+}
+
+// ContentHeight returns the height needed to display all content (not including borders)
+func (l *LogOverlay) ContentHeight() int {
+	// Each revision takes 2 lines
+	return len(l.revisions) * 2
 }

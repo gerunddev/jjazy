@@ -66,6 +66,8 @@ type Revision struct {
 	Description   string
 	Author        string
 	Timestamp     string
+	Bookmarks     []string
+	GitHead       bool
 	IsWorkingCopy bool
 	WorkspaceName string
 	IsRoot        bool
