@@ -181,7 +181,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if a.currentExperience == ExperienceChange {
-				// Go back to Log experience
+				if a.focusedPanel == 0 {
+					// From Diff → Files panel
+					a.setFocus(1)
+					return a, nil
+				}
+				// From Files → Exit to Log experience
 				a.exitChangeExperience()
 				return a, nil
 			} else if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
@@ -215,6 +220,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.setFocus(0)
 					return a, nil
 				}
+			} else if a.currentExperience == ExperienceChange {
+				if a.focusedPanel == 1 {
+					// From Files → Diff panel
+					a.setFocus(0)
+					return a, nil
+				}
+				// From Diff → no action (already at rightmost)
 			}
 
 		case key.Matches(msg, a.keys.Enter):
@@ -572,29 +584,23 @@ func (a *App) renderBreadcrumbs() string {
 		}
 	}
 
-	// Orange tab style for folder name
-	orangeTabStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FCFCFA")). // White text
-		Background(lipgloss.Color("#FC9867")). // Monokai orange
-		Bold(true).
-		PaddingLeft(1).
-		PaddingRight(1)
+	// Orange text style for folder name
+	orangeTextStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FC9867")). // Monokai orange
+		Bold(true)
 
-	folderTab := orangeTabStyle.Render(" " + folderName + " ")
+	folderTab := orangeTextStyle.Render(folderName)
 
 	if a.currentExperience == ExperienceLog {
 		return folderTab
 	}
 
-	// Blue tab style for change ID (Change experience)
-	blueTabStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FCFCFA")). // White text
-		Background(lipgloss.Color("#78DCE8")). // Monokai blue/cyan
-		Bold(true).
-		PaddingLeft(1).
-		PaddingRight(1)
+	// Blue text style for change ID (Change experience)
+	blueTextStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#78DCE8")). // Monokai blue/cyan
+		Bold(true)
 
-	changeTab := blueTabStyle.Render(" " + a.selectedChangeID + " ")
+	changeTab := blueTextStyle.Render(a.selectedChangeID)
 
 	return folderTab + " " + changeTab
 }
@@ -633,18 +639,24 @@ func (a *App) renderMainFrame(content string) string {
 }
 
 func (a *App) renderHelpBar() string {
-	var items []string
-
-	// Build help items
-	bindings := a.keys.ShortHelp()
-	for _, b := range bindings {
-		keyStyle := HelpKeyStyle.Render(b.Help().Key)
-		descStyle := HelpDescStyle.Render(b.Help().Desc)
-		items = append(items, keyStyle+" "+descStyle)
+	// Build context from current state
+	ctx := HelpBarContext{
+		Experience:   a.currentExperience,
+		FocusedPanel: a.focusedPanel,
+		Entered:      false,
 	}
 
-	helpText := strings.Join(items, "  ")
-	return HelpBarStyle.Width(a.width).Render(helpText)
+	// Determine entered state based on focused panel
+	if a.currentExperience == ExperienceLog {
+		switch a.focusedPanel {
+		case 1:
+			ctx.Entered = a.workspacePanel.IsEntered()
+		case 2:
+			ctx.Entered = a.bookmarksPanel.IsEntered()
+		}
+	}
+
+	return RenderContextualHelpBar(ctx, a.width)
 }
 
 func (a *App) overlayHelp(background string) string {

@@ -234,7 +234,8 @@ func (p *FilesPanel) renderContent() string {
 			path = truncate(path, maxPathLen)
 		}
 
-		if i == p.cursor && p.focused {
+		if i == p.cursor {
+			// Always show selected item in yellow (tracked cursor)
 			path = theme.SelectedItemStyle.Render(path)
 		} else {
 			path = theme.NormalItemStyle.Render(path)
