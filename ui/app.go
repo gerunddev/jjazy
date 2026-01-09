@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gerund/jjazy/app"
 	"github.com/gerund/jjazy/jj"
 	"github.com/gerund/jjazy/ui/floating"
 	"github.com/gerund/jjazy/ui/messages"
@@ -79,8 +80,8 @@ func NewApp(repo *jj.Repo, repoPath string) *App {
 		repoPath:          repoPath,
 		currentExperience: ExperienceLog,
 		// Log Experience panels
-		workspacePanel: panels.NewWorkspacePanel(),
-		bookmarksPanel: panels.NewBookmarksPanel(repo),
+		workspacePanel: panels.NewWorkspacePanel(repo),
+		bookmarksPanel: panels.NewBookmarksPanel(repo, repoPath),
 		logPanel:       panels.NewLogPanel(repoPath),
 		// Change Experience panels
 		filesPanel:   filesPanel,
@@ -153,6 +154,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.String() == "escape",
 			msg.String() == "ctrl+g",
 			msg.Type == tea.KeyCtrlG:
+			// First check if we need to exit cursor mode in browsable panels
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+				a.workspacePanel.SetEntered(false)
+				return a, nil
+			}
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+				a.bookmarksPanel.SetEntered(false)
+				return a, nil
+			}
 			// Go back to previous experience
 			if a.currentExperience == ExperienceChange {
 				a.exitChangeExperience()
@@ -161,6 +171,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.Type == tea.KeyLeft, msg.String() == "left":
 			// Left arrow navigation
+			// First check if we need to exit entered mode
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+				a.workspacePanel.SetEntered(false)
+				return a, nil
+			}
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+				a.bookmarksPanel.SetEntered(false)
+				return a, nil
+			}
 			if a.currentExperience == ExperienceChange {
 				// Go back to Log experience
 				a.exitChangeExperience()
@@ -173,6 +192,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.Type == tea.KeyRight, msg.String() == "right":
 			// Right arrow navigation
+			// First check if we need to exit entered mode and move to log
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+				a.workspacePanel.SetEntered(false)
+				a.setFocus(0) // Move to log
+				return a, nil
+			}
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+				a.bookmarksPanel.SetEntered(false)
+				a.setFocus(0) // Move to log
+				return a, nil
+			}
 			if a.currentExperience == ExperienceLog {
 				if a.focusedPanel == 0 {
 					// From Log panel → drill into change
@@ -188,24 +218,61 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, a.keys.Enter):
-			// Enter in Log experience (on log panel) drills into change
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
-				if change := a.logPanel.SelectedChange(); change != nil {
-					a.enterChangeExperience(change.ChangeID)
+			if a.currentExperience == ExperienceLog {
+				switch a.focusedPanel {
+				case 0: // Log panel - jj edit
+					if change := a.logPanel.SelectedChange(); change != nil {
+						_ = jj.Edit(a.repoPath, change.ChangeID)
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					}
+					return a, nil
+				case 1: // Workspace panel
+					if !a.workspacePanel.IsEntered() {
+						a.workspacePanel.SetEntered(true)
+					} else if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
+						_ = jj.WorkspaceSwitch(a.repoPath, ws.Name)
+						a.workspacePanel.SetEntered(false)
+						a.setFocus(0) // Return to log view
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					}
+					return a, nil
+				case 2: // Bookmarks panel
+					if !a.bookmarksPanel.IsEntered() {
+						a.bookmarksPanel.SetEntered(true)
+					} else if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
+						// Use Navigation to find edit target (tip of branch or boundary)
+						if revisions, err := a.repo.Log(); err == nil {
+							nav := app.NewNavigation(a.repoPath, revisions)
+							if target := nav.FindBookmarkEditTarget(bm.Name); target != nil {
+								_ = nav.EditRevision(target.ChangeID)
+							}
+						}
+						a.bookmarksPanel.SetEntered(false)
+						a.setFocus(0) // Return to log view
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					}
 					return a, nil
 				}
 			}
 
 		case msg.Type == tea.KeyDown, msg.String() == "down":
 			// Down from Workspace → Bookmarks (in Log experience)
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 {
+			// Only move between panels if not in entered mode
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && !a.workspacePanel.IsEntered() {
 				a.setFocus(2)
 				return a, nil
 			}
 
 		case msg.Type == tea.KeyUp, msg.String() == "up":
 			// Up from Bookmarks → Workspace (in Log experience)
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 {
+			// Only move between panels if not in entered mode
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && !a.bookmarksPanel.IsEntered() {
 				a.setFocus(1)
 				return a, nil
 			}
@@ -226,11 +293,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, a.keys.NextPanel):
+			// If in cursor mode in a browsable panel, exit to focus mode
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+				a.workspacePanel.SetEntered(false)
+				return a, nil
+			}
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+				a.bookmarksPanel.SetEntered(false)
+				return a, nil
+			}
 			maxPanels := a.maxPanelsForExperience()
 			a.setFocus((a.focusedPanel + 1) % maxPanels)
 			return a, nil
 
 		case key.Matches(msg, a.keys.PrevPanel):
+			// If in cursor mode in a browsable panel, exit to focus mode
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+				a.workspacePanel.SetEntered(false)
+				return a, nil
+			}
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+				a.bookmarksPanel.SetEntered(false)
+				return a, nil
+			}
 			maxPanels := a.maxPanelsForExperience()
 			a.setFocus((a.focusedPanel + maxPanels - 1) % maxPanels)
 			return a, nil
@@ -349,6 +434,10 @@ func (a *App) maxPanelsForExperience() int {
 
 func (a *App) setFocus(panel int) {
 	a.clearAllFocus()
+
+	// Clear entered state when changing focus
+	a.workspacePanel.SetEntered(false)
+	a.bookmarksPanel.SetEntered(false)
 
 	// Clamp panel index to valid range for current experience
 	maxPanels := a.maxPanelsForExperience()

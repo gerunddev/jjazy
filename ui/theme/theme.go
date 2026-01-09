@@ -79,11 +79,12 @@ var (
 
 // Log/revision styles
 var (
-	RevisionIDStyle  = lipgloss.NewStyle().Foreground(ColorOrange)
-	ChangeIDStyle    = lipgloss.NewStyle().Foreground(ColorMagenta)
-	AuthorStyle      = lipgloss.NewStyle().Foreground(ColorYellow)
-	TimestampStyle   = lipgloss.NewStyle().Foreground(ColorBlue)
-	WorkingCopyStyle = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	RevisionIDStyle      = lipgloss.NewStyle().Foreground(ColorOrange)
+	ChangeIDStyle        = lipgloss.NewStyle().Foreground(ColorMagenta)
+	AuthorStyle          = lipgloss.NewStyle().Foreground(ColorYellow)
+	TimestampStyle       = lipgloss.NewStyle().Foreground(ColorBlue)
+	WorkingCopyStyle     = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	CurrentBookmarkStyle = lipgloss.NewStyle().Foreground(ColorMagenta).Bold(true)
 
 	// Unique prefix highlighting styles (for jj-style ID display)
 	// Prefix: colored and bold, Rest: grey/dimmed

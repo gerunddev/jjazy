@@ -12,6 +12,8 @@ type Panel interface {
 	ShortHelp() string
 	SetFocused(bool)
 	IsFocused() bool
+	SetEntered(bool)
+	IsEntered() bool
 	SetSize(width, height int)
 }
 
@@ -20,6 +22,7 @@ type BasePanel struct {
 	title     string
 	shortHelp string
 	focused   bool
+	entered   bool // Whether cursor is visible and navigable (two-level focus)
 	width     int
 	height    int
 	cursor    int
@@ -47,6 +50,18 @@ func (b *BasePanel) SetFocused(focused bool) {
 
 func (b *BasePanel) IsFocused() bool {
 	return b.focused
+}
+
+func (b *BasePanel) SetEntered(entered bool) {
+	b.entered = entered
+	if entered {
+		// Reset cursor to top when entering cursor mode
+		b.cursor = 0
+	}
+}
+
+func (b *BasePanel) IsEntered() bool {
+	return b.entered
 }
 
 func (b *BasePanel) SetSize(width, height int) {

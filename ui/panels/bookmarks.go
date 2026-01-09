@@ -5,25 +5,42 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gerund/jjazy/app"
 	"github.com/gerund/jjazy/jj"
+	"github.com/gerund/jjazy/ui/borders"
 	"github.com/gerund/jjazy/ui/fixtures"
 	"github.com/gerund/jjazy/ui/theme"
 )
 
-// BookmarksPanel shows bookmarks (branches)
+// BookmarksPanel shows bookmarks (branches).
+// This is a "browsable" panel that requires Enter to show cursor.
 type BookmarksPanel struct {
 	BasePanel
 	repo      *jj.Repo
+	repoPath  string
 	bookmarks []fixtures.Bookmark
 	viewport  viewport.Model
 	ready     bool
 }
 
+// SetEntered overrides BasePanel to also reset viewport and re-render
+func (p *BookmarksPanel) SetEntered(entered bool) {
+	p.BasePanel.SetEntered(entered)
+	if p.ready {
+		if entered {
+			p.viewport.GotoTop()
+		}
+		// Re-render to show/hide cursor styling
+		p.viewport.SetContent(p.renderContent())
+	}
+}
+
 // NewBookmarksPanel creates a new bookmarks panel
-func NewBookmarksPanel(repo *jj.Repo) *BookmarksPanel {
+func NewBookmarksPanel(repo *jj.Repo, repoPath string) *BookmarksPanel {
 	p := &BookmarksPanel{
 		BasePanel: NewBasePanel("2 Bookmarks", "branches"),
 		repo:      repo,
+		repoPath:  repoPath,
 	}
 	p.loadBookmarks()
 	return p
@@ -38,16 +55,29 @@ func (p *BookmarksPanel) loadBookmarks() {
 		return
 	}
 
+	// Use Navigation to find current bookmark (closest to working copy)
+	var currentBookmark string
+	if revisions, err := p.repo.Log(); err == nil {
+		nav := app.NewNavigation(p.repoPath, revisions)
+		currentBookmark = nav.FindCurrentBookmark()
+	}
+
 	// Convert jj.Branch to fixtures.Bookmark
 	p.bookmarks = make([]fixtures.Bookmark, len(branches))
 	for i, b := range branches {
 		p.bookmarks[i] = fixtures.Bookmark{
-			Name:    b.Name,
-			IsLocal: b.IsLocal,
-			// TODO: Get these from jj-lib when available
-			RevisionID: "",
-			IsCurrent:  false,
+			Name:      b.Name,
+			IsLocal:   b.IsLocal,
+			IsCurrent: b.Name == currentBookmark,
 		}
+	}
+}
+
+// Refresh reloads bookmark data and re-renders.
+func (p *BookmarksPanel) Refresh() {
+	p.loadBookmarks()
+	if p.ready {
+		p.viewport.SetContent(p.renderContent())
 	}
 }
 
@@ -74,7 +104,8 @@ func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		if !p.focused {
+		// Only process cursor keys when focused AND entered
+		if !p.focused || !p.entered {
 			return p, nil
 		}
 		switch msg.String() {
@@ -119,6 +150,14 @@ func (p *BookmarksPanel) View() string {
 	return p.RenderFrame(p.viewport.View())
 }
 
+// RenderFrame overrides BasePanel to show white border in cursor mode
+func (p *BookmarksPanel) RenderFrame(content string) string {
+	// Focus mode: yellow border (focused && !entered)
+	// Cursor mode: white border (entered)
+	showFocusBorder := p.focused && !p.entered
+	return borders.RenderTitledBorder(content, p.title, p.width, p.height, showFocusBorder)
+}
+
 // SetSize initializes or resizes the viewport
 func (p *BookmarksPanel) SetSize(width, height int) {
 	p.BasePanel.SetSize(width, height)
@@ -142,29 +181,28 @@ func (p *BookmarksPanel) renderContent() string {
 	contentWidth := p.ContentWidth()
 
 	for i, bm := range p.bookmarks {
-		// Build the line with indicator for current bookmark
-		indicator := "  "
-		if bm.IsCurrent {
-			indicator = theme.WorkingCopyStyle.Render("● ")
-		}
-
 		// Truncate if needed
 		name := bm.Name
 		if len(name)+2 > contentWidth && contentWidth > 3 {
 			name = truncate(name, contentWidth-3)
 		}
 
-		// Style the name based on local vs remote
+		// Style the name based on current/selected state
+		// Cursor (yellow) takes priority when entered
 		var styledName string
-		if i == p.cursor && p.focused {
+		if i == p.cursor && p.focused && p.entered {
+			// Selected + entered: YELLOW (overrides current color)
 			styledName = theme.SelectedItemStyle.Render(name)
+		} else if bm.IsCurrent {
+			// Current bookmark is PURPLE
+			styledName = theme.CurrentBookmarkStyle.Render(name)
 		} else if bm.IsLocal {
 			styledName = theme.NormalItemStyle.Render(name)
 		} else {
 			styledName = theme.DimmedStyle.Render(name)
 		}
 
-		line := indicator + styledName
+		line := styledName
 		lines = append(lines, line)
 	}
 
