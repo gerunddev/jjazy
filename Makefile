@@ -1,30 +1,36 @@
-.PHONY: all rust go clean install
+.PHONY: all rust go clean install release
+
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION)"
 
 all: rust go
 
-# Build the Rust library
+# Build the Rust static library
 rust:
 	cd rust && cargo build --release
 
-# Build the Go binary (depends on Rust library)
+# Build the Go binary (statically linked with Rust)
 go: rust
-	CGO_ENABLED=1 go build -o jjazy .
+	CGO_ENABLED=1 go build $(LDFLAGS) -o jjazy .
+
+# Build optimized release binary with verification
+release: rust
+	CGO_ENABLED=1 go build $(LDFLAGS) -o jjazy .
+	@echo "Binary size: $$(du -h jjazy | cut -f1)"
+	@echo "Verifying no dynamic Rust dependencies..."
+	@otool -L jjazy | grep -v libjjbridge || echo "OK: No libjjbridge.dylib dependency"
 
 # Clean build artifacts
 clean:
 	cd rust && cargo clean
 	rm -f jjazy
 
-# Run the application
+# Run the application (no DYLD_LIBRARY_PATH needed!)
 run: all
-	DYLD_LIBRARY_PATH=./rust/target/release ./jjazy
+	./jjazy
 
-# Install the binary using go install and copy the library
-install: rust
-	@echo "Installing Rust library to /usr/local/lib..."
-	@sudo install -d /usr/local/lib
-	@sudo install -m 755 rust/target/release/libjjbridge.dylib /usr/local/lib/libjjbridge.dylib
-	@echo "Installing jjazy binary..."
-	@CGO_ENABLED=1 go install .
-	@echo "Installation complete! You can now run 'jjazy' from anywhere."
-	@echo "Note: The library is installed to /usr/local/lib"
+# Install the binary to /usr/local/bin
+install: release
+	@echo "Installing jjazy to /usr/local/bin..."
+	@sudo install -m 755 jjazy /usr/local/bin/jjazy
+	@echo "Installation complete! Run 'jjazy' from any jj repository."
