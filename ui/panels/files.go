@@ -16,6 +16,7 @@ import (
 type FilesPanel struct {
 	BasePanel
 	repo     *jj.Repo
+	repoPath string
 	files    []fixtures.FileChange
 	viewport viewport.Model
 	ready    bool
@@ -24,11 +25,17 @@ type FilesPanel struct {
 // NewFilesPanel creates a new files panel
 func NewFilesPanel(repo *jj.Repo) *FilesPanel {
 	p := &FilesPanel{
-		BasePanel: NewBasePanel("2 Files", "changes"),
+		BasePanel: NewBasePanel("1 Files", "changes"),
 		repo:      repo,
+		repoPath:  ".", // Default to current directory
 	}
 	p.loadFiles()
 	return p
+}
+
+// SetRepoPath sets the repository path for CLI operations
+func (p *FilesPanel) SetRepoPath(path string) {
+	p.repoPath = path
 }
 
 func (p *FilesPanel) loadFiles() {
@@ -56,6 +63,40 @@ func (p *FilesPanel) loadFiles() {
 			Path:   fc.Path,
 			Status: status,
 		}
+	}
+}
+
+// LoadForChange loads files changed in a specific change ID
+func (p *FilesPanel) LoadForChange(changeID string) {
+	cliFiles, err := jj.FilesForChange(p.repoPath, changeID)
+	if err != nil {
+		p.files = nil
+		return
+	}
+
+	p.files = make([]fixtures.FileChange, len(cliFiles))
+	for i, cf := range cliFiles {
+		var status fixtures.FileStatus
+		switch cf.Status {
+		case "A":
+			status = fixtures.StatusAdded
+		case "D":
+			status = fixtures.StatusDeleted
+		case "M":
+			status = fixtures.StatusModified
+		default:
+			status = fixtures.StatusModified
+		}
+		p.files[i] = fixtures.FileChange{
+			Path:   cf.Path,
+			Status: status,
+		}
+	}
+
+	p.cursor = 0
+	if p.ready {
+		p.viewport.SetContent(p.renderContent())
+		p.viewport.GotoTop()
 	}
 }
 

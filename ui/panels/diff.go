@@ -15,6 +15,7 @@ import (
 type DiffViewer struct {
 	BasePanel
 	repo     *jj.Repo
+	repoPath string
 	viewport viewport.Model
 	content  string
 	ready    bool
@@ -25,9 +26,15 @@ func NewDiffViewer(repo *jj.Repo) *DiffViewer {
 	d := &DiffViewer{
 		BasePanel: NewBasePanel("0 Diff", "changes"),
 		repo:      repo,
+		repoPath:  ".", // Default to current directory
 	}
 	d.loadDiff()
 	return d
+}
+
+// SetRepoPath sets the repository path for CLI operations
+func (d *DiffViewer) SetRepoPath(path string) {
+	d.repoPath = path
 }
 
 func (d *DiffViewer) loadDiff() {
@@ -38,6 +45,36 @@ func (d *DiffViewer) loadDiff() {
 		return
 	}
 	d.content = diff
+}
+
+// LoadChange loads the diff for a specific change ID
+func (d *DiffViewer) LoadChange(changeID string) {
+	diff, err := jj.DiffForChange(d.repoPath, changeID)
+	if err != nil {
+		d.content = "Error loading diff: " + err.Error()
+	} else {
+		d.content = diff
+	}
+
+	if d.ready {
+		d.viewport.SetContent(d.renderDiff())
+		d.viewport.GotoTop()
+	}
+}
+
+// LoadFileInChange loads the diff for a specific file within a change
+func (d *DiffViewer) LoadFileInChange(changeID, filePath string) {
+	diff, err := jj.DiffForChangeFile(d.repoPath, changeID, filePath)
+	if err != nil {
+		d.content = "Error loading diff: " + err.Error()
+	} else {
+		d.content = diff
+	}
+
+	if d.ready {
+		d.viewport.SetContent(d.renderDiff())
+		d.viewport.GotoTop()
+	}
 }
 
 // SetContent updates the diff content

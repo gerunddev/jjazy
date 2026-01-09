@@ -11,13 +11,12 @@ type KeyMap struct {
 	Escape key.Binding
 
 	// Panel navigation
-	Panel0     key.Binding
-	Panel1     key.Binding
-	Panel2     key.Binding
-	Panel3     key.Binding
-	Panel4     key.Binding
-	NextPanel  key.Binding
-	PrevPanel  key.Binding
+	Panel0    key.Binding
+	Panel1    key.Binding
+	Panel2    key.Binding
+	Panel3    key.Binding
+	NextPanel key.Binding
+	PrevPanel key.Binding
 
 	// List navigation (within panels)
 	Up         key.Binding
@@ -58,7 +57,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Panel1: key.NewBinding(
 			key.WithKeys("1"),
-			key.WithHelp("1", "status"),
+			key.WithHelp("1", "workspace"),
 		),
 		Panel2: key.NewBinding(
 			key.WithKeys("2"),
@@ -67,10 +66,6 @@ func DefaultKeyMap() KeyMap {
 		Panel3: key.NewBinding(
 			key.WithKeys("3"),
 			key.WithHelp("3", "bookmarks"),
-		),
-		Panel4: key.NewBinding(
-			key.WithKeys("4"),
-			key.WithHelp("4", "operations"),
 		),
 		NextPanel: key.NewBinding(
 			key.WithKeys("tab"),
@@ -138,7 +133,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 // FullHelp returns all keybindings for the help screen
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Panel0, k.Panel1, k.Panel2, k.Panel3, k.Panel4},
+		{k.Panel0, k.Panel1, k.Panel2, k.Panel3},
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Enter, k.Space, k.Edit, k.Delete},
 		{k.Escape, k.Help, k.Quit},

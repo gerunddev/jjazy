@@ -113,3 +113,61 @@ func stripANSI(s string) string {
 	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return re.ReplaceAllString(s, "")
 }
+
+// FileChange represents a file changed in a revision (from CLI).
+type CLIFileChange struct {
+	Path   string
+	Status string // "M" for modified, "A" for added, "D" for deleted
+}
+
+// FilesForChange returns the files changed in a specific change using CLI.
+func FilesForChange(repoPath, changeID string) ([]CLIFileChange, error) {
+	// Use jj diff --summary to get file list
+	cmd := exec.Command("jj", "diff", "-r", changeID, "--summary")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var files []CLIFileChange
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Format: "M path/to/file" or "A path" or "D path"
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			files = append(files, CLIFileChange{
+				Status: parts[0],
+				Path:   parts[1],
+			})
+		}
+	}
+
+	return files, nil
+}
+
+// DiffForChange returns the diff content for a specific change using CLI.
+func DiffForChange(repoPath, changeID string) (string, error) {
+	cmd := exec.Command("jj", "diff", "-r", changeID, "--color=never")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// DiffForChangeFile returns the diff for a specific file within a change.
+func DiffForChangeFile(repoPath, changeID, filePath string) (string, error) {
+	cmd := exec.Command("jj", "diff", "-r", changeID, "--color=never", filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
