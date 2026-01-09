@@ -6,10 +6,9 @@ import "github.com/charmbracelet/bubbles/key"
 // TODO: Make this configurable via config file
 type KeyMap struct {
 	// Global
-	Quit       key.Binding
-	Help       key.Binding
-	ToggleLog  key.Binding
-	Escape     key.Binding
+	Quit   key.Binding
+	Help   key.Binding
+	Escape key.Binding
 
 	// Panel navigation
 	Panel0     key.Binding
@@ -47,10 +46,6 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
 		),
-		ToggleLog: key.NewBinding(
-			key.WithKeys("L"),
-			key.WithHelp("L", "log"),
-		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
 			key.WithHelp("esc", "close/back"),
@@ -59,7 +54,7 @@ func DefaultKeyMap() KeyMap {
 		// Panel navigation
 		Panel0: key.NewBinding(
 			key.WithKeys("0"),
-			key.WithHelp("0", "diff"),
+			key.WithHelp("0", "log"),
 		),
 		Panel1: key.NewBinding(
 			key.WithKeys("1"),
@@ -86,30 +81,30 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("shift+tab", "prev panel"),
 		),
 
-		// List navigation
+		// List navigation (emacs-style)
 		Up: key.NewBinding(
-			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "up"),
+			key.WithKeys("up", "ctrl+p"),
+			key.WithHelp("↑/C-p", "up"),
 		),
 		Down: key.NewBinding(
-			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "down"),
+			key.WithKeys("down", "ctrl+n"),
+			key.WithHelp("↓/C-n", "down"),
 		),
 		PageUp: key.NewBinding(
-			key.WithKeys("pgup", "ctrl+u"),
-			key.WithHelp("pgup", "page up"),
+			key.WithKeys("pgup", "alt+v"),
+			key.WithHelp("M-v", "page up"),
 		),
 		PageDown: key.NewBinding(
-			key.WithKeys("pgdown", "ctrl+d"),
-			key.WithHelp("pgdn", "page down"),
+			key.WithKeys("pgdown", "ctrl+v"),
+			key.WithHelp("C-v", "page down"),
 		),
 		Home: key.NewBinding(
-			key.WithKeys("home", "g"),
-			key.WithHelp("home/g", "top"),
+			key.WithKeys("home", "alt+<"),
+			key.WithHelp("M-<", "top"),
 		),
 		End: key.NewBinding(
-			key.WithKeys("end", "G"),
-			key.WithHelp("end/G", "bottom"),
+			key.WithKeys("end", "alt+>"),
+			key.WithHelp("M->", "bottom"),
 		),
 
 		// Actions
@@ -135,7 +130,6 @@ func DefaultKeyMap() KeyMap {
 // ShortHelp returns a short help string for the status bar
 func (k KeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
-		k.ToggleLog,
 		k.Help,
 		k.Quit,
 	}
@@ -147,6 +141,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Panel0, k.Panel1, k.Panel2, k.Panel3, k.Panel4},
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Enter, k.Space, k.Edit, k.Delete},
-		{k.ToggleLog, k.Escape, k.Help, k.Quit},
+		{k.Escape, k.Help, k.Quit},
 	}
 }

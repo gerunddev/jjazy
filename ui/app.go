@@ -1,9 +1,6 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -12,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerund/jjazy/jj"
 	"github.com/gerund/jjazy/ui/floating"
-	"github.com/gerund/jjazy/ui/messages"
 	"github.com/gerund/jjazy/ui/panels"
 )
 
@@ -25,23 +21,22 @@ type PanelBound struct {
 // App is the main application model
 type App struct {
 	// Repository
-	repo *jj.Repo
+	repo     *jj.Repo
+	repoPath string
 
 	// Panels
 	statusPanel     *panels.StatusPanel
 	filesPanel      *panels.FilesPanel
 	bookmarksPanel  *panels.BookmarksPanel
 	operationsPanel *panels.OperationsPanel
-	diffViewer      *panels.DiffViewer
+	logPanel        *panels.LogPanel
 
 	// Floating windows
-	logOverlay  *floating.LogOverlay
 	helpOverlay *floating.HelpOverlay
-	showLog     bool
 	showHelp    bool
 
 	// State
-	focusedPanel int // 0=diff, 1=status, 2=files, 3=bookmarks, 4=operations
+	focusedPanel int // 0=log, 1=status, 2=files, 3=bookmarks, 4=operations
 	keys         KeyMap
 	help         help.Model
 	width        int
@@ -53,33 +48,29 @@ type App struct {
 }
 
 // NewApp creates a new application
-func NewApp(repo *jj.Repo) *App {
+func NewApp(repo *jj.Repo, repoPath string) *App {
 	keys := DefaultKeyMap()
 	app := &App{
 		repo:            repo,
+		repoPath:        repoPath,
 		statusPanel:     panels.NewStatusPanel(repo),
 		filesPanel:      panels.NewFilesPanel(repo),
 		bookmarksPanel:  panels.NewBookmarksPanel(repo),
 		operationsPanel: panels.NewOperationsPanel(repo),
-		diffViewer:      panels.NewDiffViewer(repo),
-		logOverlay:      floating.NewLogOverlay(repo),
+		logPanel:        panels.NewLogPanel(repoPath),
 		helpOverlay:     floating.NewHelpOverlay(&keys),
-		focusedPanel:    2, // Files panel
+		focusedPanel:    0, // Log panel (main panel)
 		keys:            keys,
 		help:            help.New(),
 	}
 
-	// Set initial focus to Files panel
-	app.filesPanel.SetFocused(true)
+	// Set initial focus to Log panel
+	app.logPanel.SetFocused(true)
 
 	return app
 }
 
 func (a *App) Init() tea.Cmd {
-	// Fetch initial diff for the first selected file
-	if file := a.filesPanel.SelectedFile(); file != nil {
-		return a.fetchFileDiff(file.Path)
-	}
 	return nil
 }
 
@@ -92,19 +83,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.updateLayout()
 		a.ready = true
-		return a, nil
-
-	case messages.FileSelectedMsg:
-		// Fetch diff for selected file
-		return a, a.fetchFileDiff(msg.Path)
-
-	case messages.RevisionSelectedMsg:
-		// Fetch diff for selected revision
-		return a, a.fetchRevisionDiff(msg.RevisionID)
-
-	case messages.DiffContentMsg:
-		// Update DiffViewer with new content
-		a.diffViewer.SetContent(msg.Content)
 		return a, nil
 
 	case tea.MouseMsg:
@@ -125,35 +103,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle floating log if visible
-		if a.showLog {
-			switch {
-			case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.ToggleLog):
-				a.showLog = false
-				return a, nil
-			case key.Matches(msg, a.keys.Quit):
-				return a, tea.Quit
-			default:
-				_, cmd := a.logOverlay.Update(msg)
-				return a, cmd
-			}
-		}
-
 		// Global keys
 		switch {
 		case key.Matches(msg, a.keys.Quit):
 			return a, tea.Quit
-
-		case key.Matches(msg, a.keys.ToggleLog):
-			a.showLog = true
-			return a, nil
 
 		case key.Matches(msg, a.keys.Help):
 			a.showHelp = true
 			return a, nil
 
 		case key.Matches(msg, a.keys.Panel0):
-			a.setFocus(0) // Diff panel
+			a.setFocus(0) // Log panel
 			return a, nil
 
 		case key.Matches(msg, a.keys.Panel1):
@@ -181,11 +141,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// Route to focused panel (0=diff, 1=status, 2=files, 3=bookmarks, 4=operations)
+		// Route to focused panel (0=log, 1=status, 2=files, 3=bookmarks, 4=operations)
 		var cmd tea.Cmd
 		switch a.focusedPanel {
 		case 0:
-			_, cmd = a.diffViewer.Update(msg)
+			_, cmd = a.logPanel.Update(msg)
 		case 1:
 			_, cmd = a.statusPanel.Update(msg)
 		case 2:
@@ -219,7 +179,7 @@ func (a *App) View() string {
 	// Build main layout
 	main := lipgloss.JoinHorizontal(lipgloss.Top,
 		sidebar,
-		a.diffViewer.View(),
+		a.logPanel.View(),
 	)
 
 	// Build help bar
@@ -228,11 +188,9 @@ func (a *App) View() string {
 	// Combine main + help
 	fullView := lipgloss.JoinVertical(lipgloss.Left, main, helpBar)
 
-	// Overlay floating windows if visible (help takes priority over log)
+	// Overlay floating help if visible
 	if a.showHelp {
 		fullView = a.overlayHelp(fullView)
-	} else if a.showLog {
-		fullView = a.overlayLog(fullView)
 	}
 
 	return fullView
@@ -240,17 +198,17 @@ func (a *App) View() string {
 
 func (a *App) setFocus(panel int) {
 	// Clear all focus
-	a.diffViewer.SetFocused(false)
+	a.logPanel.SetFocused(false)
 	a.statusPanel.SetFocused(false)
 	a.filesPanel.SetFocused(false)
 	a.bookmarksPanel.SetFocused(false)
 	a.operationsPanel.SetFocused(false)
 
-	// Set new focus: 0=diff, 1=status, 2=files, 3=bookmarks, 4=operations
+	// Set new focus: 0=log, 1=status, 2=files, 3=bookmarks, 4=operations
 	a.focusedPanel = panel
 	switch panel {
 	case 0:
-		a.diffViewer.SetFocused(true)
+		a.logPanel.SetFocused(true)
 	case 1:
 		a.statusPanel.SetFocused(true)
 	case 2:
@@ -271,7 +229,7 @@ func (a *App) updateLayout() {
 		sidebarWidth = SidebarMaxWidth
 	}
 
-	diffWidth := a.width - sidebarWidth
+	logWidth := a.width - sidebarWidth
 	contentHeight := a.height - 1 // Leave room for help bar
 
 	// Smart dynamic panel heights - allocate space based on content needs:
@@ -310,7 +268,7 @@ func (a *App) updateLayout() {
 	a.filesPanel.SetSize(sidebarWidth, filesHeight)
 	a.bookmarksPanel.SetSize(sidebarWidth, bookmarksHeight)
 	a.operationsPanel.SetSize(sidebarWidth, operationsHeight)
-	a.diffViewer.SetSize(diffWidth, contentHeight)
+	a.logPanel.SetSize(logWidth, contentHeight)
 
 	// Calculate Y positions for panel bounds
 	statusY := 0
@@ -319,9 +277,9 @@ func (a *App) updateLayout() {
 	operationsY := bookmarksY + bookmarksHeight
 
 	// Calculate panel bounds for mouse detection
-	// Panel indices: 0=diff, 1=status, 2=files, 3=bookmarks, 4=operations
+	// Panel indices: 0=log, 1=status, 2=files, 3=bookmarks, 4=operations
 	a.panelBounds = []PanelBound{
-		{X1: sidebarWidth, Y1: 0, X2: a.width - 1, Y2: contentHeight - 1, PanelIndex: 0},                      // DiffViewer
+		{X1: sidebarWidth, Y1: 0, X2: a.width - 1, Y2: contentHeight - 1, PanelIndex: 0},                      // LogPanel
 		{X1: 0, Y1: statusY, X2: sidebarWidth - 1, Y2: statusY + statusHeight - 1, PanelIndex: 1},              // Status
 		{X1: 0, Y1: filesY, X2: sidebarWidth - 1, Y2: filesY + filesHeight - 1, PanelIndex: 2},                 // Files
 		{X1: 0, Y1: bookmarksY, X2: sidebarWidth - 1, Y2: bookmarksY + bookmarksHeight - 1, PanelIndex: 3},     // Bookmarks
@@ -331,7 +289,6 @@ func (a *App) updateLayout() {
 	// Set overlay sizes to full screen
 	overlayWidth := a.width
 	overlayHeight := a.height - 1 // Leave room for help bar
-	a.logOverlay.SetSize(overlayWidth, overlayHeight)
 	a.helpOverlay.SetSize(overlayWidth, overlayHeight)
 }
 
@@ -348,24 +305,6 @@ func (a *App) renderHelpBar() string {
 
 	helpText := strings.Join(items, "  ")
 	return HelpBarStyle.Width(a.width).Render(helpText)
-}
-
-func (a *App) overlayLog(background string) string {
-	// Render log overlay at full screen
-	logView := a.logOverlay.View()
-
-	// Replace background with log view (full overlay)
-	bgLines := strings.Split(background, "\n")
-	logLines := strings.Split(logView, "\n")
-
-	// Replace background lines with log lines starting from the top
-	for i, logLine := range logLines {
-		if i >= 0 && i < len(bgLines) {
-			bgLines[i] = logLine
-		}
-	}
-
-	return strings.Join(bgLines, "\n")
 }
 
 func (a *App) overlayHelp(background string) string {
@@ -400,90 +339,6 @@ func min(a, b int) int {
 	return b
 }
 
-// diffWithDifftastic uses difftastic to create a syntax-aware diff
-func (a *App) diffWithDifftastic(path string, before, after string) (string, error) {
-	// Create temp directory for diff files
-	tmpDir, err := os.MkdirTemp("", "jjazy-diff-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Use the original filename to help difftastic detect the file type
-	baseName := filepath.Base(path)
-	beforePath := filepath.Join(tmpDir, "before_"+baseName)
-	afterPath := filepath.Join(tmpDir, "after_"+baseName)
-
-	// Write file contents to temp files
-	if err := os.WriteFile(beforePath, []byte(before), 0644); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(afterPath, []byte(after), 0644); err != nil {
-		return "", err
-	}
-
-	// Invoke difftastic
-	cmd := exec.Command("difft", "--color=always", beforePath, afterPath)
-	output, err := cmd.Output()
-	if err != nil {
-		// difftastic may exit with non-zero status on diffs, check if we got output
-		if len(output) > 0 {
-			return string(output), nil
-		}
-		return "", err
-	}
-
-	return string(output), nil
-}
-
-// fetchFileDiff fetches the diff for a specific file
-func (a *App) fetchFileDiff(path string) tea.Cmd {
-	return func() tea.Msg {
-		if path == "" {
-			return nil
-		}
-
-		// Try to use difftastic if available
-		var diff string
-		var err error
-
-		// Check if difftastic is available
-		if _, lookErr := exec.LookPath("difft"); lookErr == nil {
-			// Get file contents for difftastic
-			contents, contentsErr := a.repo.FileContents(path)
-			if contentsErr == nil {
-				diff, err = a.diffWithDifftastic(path, contents.Before, contents.After)
-			} else {
-				err = contentsErr
-			}
-		}
-
-		// Fallback to regular diff if difftastic fails or is not available
-		if err != nil || diff == "" {
-			diff, err = a.repo.FileDiff(path)
-			if err != nil {
-				diff = "Error: " + err.Error()
-			}
-		}
-
-		return messages.DiffContentMsg{Content: diff, Title: "Diff: " + path}
-	}
-}
-
-// fetchRevisionDiff fetches the diff for a revision compared to its parent
-func (a *App) fetchRevisionDiff(revisionID string) tea.Cmd {
-	return func() tea.Msg {
-		if revisionID == "" {
-			return nil
-		}
-		diff, err := a.repo.RevisionDiff(revisionID)
-		if err != nil {
-			diff = "Error: " + err.Error()
-		}
-		return messages.DiffContentMsg{Content: diff, Title: "Diff: " + revisionID}
-	}
-}
-
 // handleMouse processes mouse events for panel focus and interaction
 func (a *App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// If help overlay is visible, handle mouse there first
@@ -498,23 +353,6 @@ func (a *App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// Forward scroll events to help overlay
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 			_, cmd := a.helpOverlay.Update(msg)
-			return a, cmd
-		}
-		return a, nil
-	}
-
-	// If log overlay is visible, handle mouse there first
-	if a.showLog {
-		// Check if click is outside log overlay to dismiss it
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			// For now, any click while log is visible dismisses it
-			// Could be improved to check if click is inside overlay
-			a.showLog = false
-			return a, nil
-		}
-		// Forward scroll events to log overlay
-		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			_, cmd := a.logOverlay.Update(msg)
 			return a, cmd
 		}
 		return a, nil
@@ -566,7 +404,7 @@ func (a *App) forwardMouseToPanel(panelIndex int, msg tea.MouseMsg) (tea.Model, 
 	var cmd tea.Cmd
 	switch panelIndex {
 	case 0:
-		_, cmd = a.diffViewer.Update(msg)
+		_, cmd = a.logPanel.Update(msg)
 	case 1:
 		_, cmd = a.statusPanel.Update(msg)
 	case 2:
