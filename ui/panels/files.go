@@ -179,6 +179,9 @@ func (p *FilesPanel) View() string {
 	if !p.ready {
 		return p.RenderFrame("Loading...")
 	}
+	if len(p.files) == 0 {
+		return p.RenderFrame(theme.DimmedStyle.Render("No files changed"))
+	}
 	return p.RenderFrame(p.viewport.View())
 }
 

@@ -22,7 +22,7 @@ type BookmarksPanel struct {
 // NewBookmarksPanel creates a new bookmarks panel
 func NewBookmarksPanel(repo *jj.Repo) *BookmarksPanel {
 	p := &BookmarksPanel{
-		BasePanel: NewBasePanel("3 Bookmarks", "branches"),
+		BasePanel: NewBasePanel("2 Bookmarks", "branches"),
 		repo:      repo,
 	}
 	p.loadBookmarks()

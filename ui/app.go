@@ -146,11 +146,45 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = true
 			return a, nil
 
-		case key.Matches(msg, a.keys.Escape):
-			// Escape in Change experience returns to Log experience
+		case key.Matches(msg, a.keys.Escape),
+			msg.Type == tea.KeyEscape,
+			msg.Type == tea.KeyEsc,
+			msg.String() == "esc",
+			msg.String() == "escape",
+			msg.String() == "ctrl+g",
+			msg.Type == tea.KeyCtrlG:
+			// Go back to previous experience
 			if a.currentExperience == ExperienceChange {
 				a.exitChangeExperience()
+			}
+			return a, nil
+
+		case msg.Type == tea.KeyLeft, msg.String() == "left":
+			// Left arrow navigation
+			if a.currentExperience == ExperienceChange {
+				// Go back to Log experience
+				a.exitChangeExperience()
 				return a, nil
+			} else if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+				// From Log panel → Workspace
+				a.setFocus(1)
+				return a, nil
+			}
+
+		case msg.Type == tea.KeyRight, msg.String() == "right":
+			// Right arrow navigation
+			if a.currentExperience == ExperienceLog {
+				if a.focusedPanel == 0 {
+					// From Log panel → drill into change
+					if change := a.logPanel.SelectedChange(); change != nil {
+						a.enterChangeExperience(change.ChangeID)
+						return a, nil
+					}
+				} else if a.focusedPanel == 1 || a.focusedPanel == 2 {
+					// From Workspace or Bookmarks → Log panel
+					a.setFocus(0)
+					return a, nil
+				}
 			}
 
 		case key.Matches(msg, a.keys.Enter):
@@ -160,6 +194,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.enterChangeExperience(change.ChangeID)
 					return a, nil
 				}
+			}
+
+		case msg.Type == tea.KeyDown, msg.String() == "down":
+			// Down from Workspace → Bookmarks (in Log experience)
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 {
+				a.setFocus(2)
+				return a, nil
+			}
+
+		case msg.Type == tea.KeyUp, msg.String() == "up":
+			// Up from Bookmarks → Workspace (in Log experience)
+			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 {
+				a.setFocus(1)
+				return a, nil
 			}
 
 		case key.Matches(msg, a.keys.Panel0):
@@ -340,17 +388,21 @@ func (a *App) enterChangeExperience(changeID string) {
 	a.currentExperience = ExperienceChange
 	a.selectedChangeID = changeID
 
-	// Load files for this change
+	// Set focus first so files panel renders with correct highlight
+	a.setFocusForExperience()
+
+	// Load files for this change (will render with first file highlighted)
 	a.filesPanel.LoadForChange(changeID)
 
-	// Load diff for this change
-	a.diffPanel.LoadChange(changeID)
+	// Load diff for the first file (if any), otherwise load full change diff
+	if file := a.filesPanel.SelectedFile(); file != nil {
+		a.diffPanel.LoadFileInChange(changeID, file.Path)
+	} else {
+		a.diffPanel.LoadChange(changeID)
+	}
 
 	// Recalculate layout for new experience
 	a.updateLayout()
-
-	// Set focus to diff panel (main panel in this experience)
-	a.setFocusForExperience()
 }
 
 // exitChangeExperience returns to the Log experience

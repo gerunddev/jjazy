@@ -130,6 +130,10 @@ func (d *DiffViewer) View() string {
 		return d.RenderFrame("Initializing...")
 	}
 
+	if strings.TrimSpace(d.content) == "" {
+		return d.RenderFrame(theme.DimmedStyle.Render("No changes"))
+	}
+
 	return d.RenderFrame(d.viewport.View())
 }
 
