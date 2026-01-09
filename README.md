@@ -10,6 +10,10 @@
 
 ### Panel Interaction Model
 
+**Experiences**
+- **Log Experience**: Initial view that focuses on the log and navigating it with workspaces and bookmarks.
+- **Change Experience**: Drill down into a change to see the files and diffs.
+
 **Focus Modes:**
 - **Focus mode**: Panel has yellow border. Arrow keys navigate between panels.
 - **Cursor mode**: Inside a panel, navigating items with up/down. Yellow cursor visible on selected item.
