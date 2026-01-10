@@ -50,8 +50,11 @@ type App struct {
 	diffPanel  *panels.DiffViewer
 
 	// Floating windows
-	helpOverlay *floating.HelpOverlay
-	showHelp    bool
+	helpOverlay      *floating.HelpOverlay
+	showHelp         bool
+	textInputOverlay *floating.TextInputOverlay
+	showTextInput    bool
+	textInputAction  string // "describe" - indicates what action is being performed
 
 	// State
 	focusedPanel int // Experience-relative: 0=main, 1=sidebar1, 2=sidebar2
@@ -125,7 +128,39 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		// Handle floating help first if visible
+		// Handle floating text input first if visible
+		if a.showTextInput {
+			switch msg.String() {
+			case "ctrl+x", "esc", "escape", "ctrl+c", "ctrl+g":
+				// Cancel text input
+				a.showTextInput = false
+				a.textInputOverlay = nil
+				a.textInputAction = ""
+				return a, nil
+			case "ctrl+s":
+				// Save text input
+				value := a.textInputOverlay.Value()
+				a.showTextInput = false
+				a.textInputOverlay = nil
+
+				// Execute the action based on textInputAction
+				if a.textInputAction == "describe" {
+					if change := a.logPanel.SelectedChange(); change != nil {
+						_ = jj.Describe(a.repoPath, change.ChangeID, value)
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					}
+				}
+				a.textInputAction = ""
+				return a, nil
+			default:
+				_, cmd := a.textInputOverlay.Update(msg)
+				return a, cmd
+			}
+		}
+
+		// Handle floating help if visible
 		if a.showHelp {
 			switch {
 			case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.Help):
@@ -334,6 +369,59 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
+		// Log view change actions (only in Log experience, Log panel focused)
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+			switch {
+			case key.Matches(msg, a.keys.NewChange):
+				// Create new change after selected
+				if change := a.logPanel.SelectedChange(); change != nil {
+					_ = jj.NewChange(a.repoPath, change.ChangeID)
+					a.logPanel.Refresh()
+					a.workspacePanel.Refresh()
+					a.bookmarksPanel.Refresh()
+				}
+				return a, nil
+
+			case key.Matches(msg, a.keys.Describe):
+				// Edit change description
+				if change := a.logPanel.SelectedChange(); change != nil {
+					// Get current description
+					currentDesc, _ := jj.GetDescription(a.repoPath, change.ChangeID)
+
+					// Show text input overlay
+					a.textInputOverlay = floating.NewTextInputOverlay(
+						"Describe Change",
+						"Enter description...",
+						currentDesc,
+					)
+					a.textInputOverlay.SetSize(a.width, a.height-1)
+					a.showTextInput = true
+					a.textInputAction = "describe"
+				}
+				return a, nil
+
+			case key.Matches(msg, a.keys.Abandon):
+				// Abandon change
+				if change := a.logPanel.SelectedChange(); change != nil {
+					_ = jj.Abandon(a.repoPath, change.ChangeID)
+					a.logPanel.Refresh()
+					a.workspacePanel.Refresh()
+					a.bookmarksPanel.Refresh()
+				}
+				return a, nil
+
+			case key.Matches(msg, a.keys.SquashChange):
+				// Squash change into parent
+				if change := a.logPanel.SelectedChange(); change != nil {
+					_ = jj.Squash(a.repoPath, change.ChangeID)
+					a.logPanel.Refresh()
+					a.workspacePanel.Refresh()
+					a.bookmarksPanel.Refresh()
+				}
+				return a, nil
+			}
+		}
+
 		// File operations (only in Change experience, Files panel focused, working copy)
 		if a.currentExperience == ExperienceChange && a.focusedPanel == 1 && a.selectedChangeIsWorking {
 			switch {
@@ -458,6 +546,11 @@ func (a *App) View() string {
 	// Overlay floating help if visible
 	if a.showHelp {
 		fullView = a.overlayHelp(fullView)
+	}
+
+	// Overlay text input if visible
+	if a.showTextInput {
+		fullView = a.overlayTextInput(fullView)
 	}
 
 	return fullView
@@ -727,6 +820,24 @@ func (a *App) overlayHelp(background string) string {
 	for i, helpLine := range helpLines {
 		if i >= 0 && i < len(bgLines) {
 			bgLines[i] = helpLine
+		}
+	}
+
+	return strings.Join(bgLines, "\n")
+}
+
+func (a *App) overlayTextInput(background string) string {
+	// Render text input overlay
+	textInputView := a.textInputOverlay.View()
+
+	// Overlay on top of background
+	bgLines := strings.Split(background, "\n")
+	textInputLines := strings.Split(textInputView, "\n")
+
+	// Replace background lines with text input lines
+	for i, textInputLine := range textInputLines {
+		if i >= 0 && i < len(bgLines) {
+			bgLines[i] = textInputLine
 		}
 	}
 

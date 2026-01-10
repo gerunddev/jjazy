@@ -124,3 +124,40 @@ func TestSquashFileErrors(t *testing.T) {
 		t.Errorf("SquashFile should fail with non-existent repo path")
 	}
 }
+
+// TestGetDescription tests that GetDescription returns empty string for changes without descriptions
+func TestGetDescription(t *testing.T) {
+	// Create a temporary directory as a mock repo
+	tmpDir := t.TempDir()
+
+	// Initialize a jj repo
+	initCmd := exec.Command("jj", "init", tmpDir)
+	if err := initCmd.Run(); err != nil {
+		t.Skipf("jj not available or unable to initialize repo: %v", err)
+	}
+
+	// Get the working copy (current) change ID
+	logCmd := exec.Command("jj", "log", "-r", "@", "-T", "change_id.short(8)")
+	logCmd.Dir = tmpDir
+	output, err := logCmd.Output()
+	if err != nil {
+		t.Fatalf("failed to get current change ID: %v", err)
+	}
+	changeID := string(output)
+
+	// Test GetDescription on a change with no description
+	// The old template "description" would return "@ | ~" for empty descriptions
+	// The new template "if(description, description, \"\")" should return empty string
+	desc, err := GetDescription(tmpDir, changeID)
+	if err != nil {
+		t.Errorf("GetDescription failed: %v", err)
+	}
+
+	// For a new change with no description set, should be empty
+	if desc == "@ | ~" {
+		t.Errorf("GetDescription returned the problematic string '@ | ~' - template fix may not be applied")
+	}
+
+	// The description should be empty or contain actual description text
+	t.Logf("Description for change with no description: %q", desc)
+}

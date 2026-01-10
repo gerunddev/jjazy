@@ -32,7 +32,13 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 	case ExperienceLog:
 		switch ctx.FocusedPanel {
 		case 0: // Log panel
-			return []HelpHint{{Key: "↵", Desc: "edit"}}
+			return []HelpHint{
+				{Key: "↵", Desc: "edit"},
+				{Key: "n", Desc: "new"},
+				{Key: "d", Desc: "describe"},
+				{Key: "a", Desc: "abandon"},
+				{Key: "s", Desc: "squash"},
+			}
 		case 1: // Workspace panel
 			if ctx.Entered {
 				return []HelpHint{{Key: "↵", Desc: "edit"}}

@@ -218,3 +218,58 @@ func SquashFile(repoPath, filePath string) error {
 	}
 	return nil
 }
+
+// NewChange creates a new change after the specified change
+func NewChange(repoPath, changeID string) error {
+	cmd := exec.Command("jj", "new", "--after", changeID)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("new failed: %s", string(output))
+	}
+	return nil
+}
+
+// GetDescription returns the description of a change
+func GetDescription(repoPath, changeID string) (string, error) {
+	cmd := exec.Command("jj", "log", "-r", changeID, "--no-graph", "-T", "if(description, description, \"\")")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("get description failed: %s", string(output))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// Describe sets the description of a change
+func Describe(repoPath, changeID, message string) error {
+	cmd := exec.Command("jj", "describe", "-r", changeID, "-m", message)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("describe failed: %s", string(output))
+	}
+	return nil
+}
+
+// Abandon removes a change and rebases its descendants
+func Abandon(repoPath, changeID string) error {
+	cmd := exec.Command("jj", "abandon", changeID)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("abandon failed: %s", string(output))
+	}
+	return nil
+}
+
+// Squash squashes a change into its parent
+func Squash(repoPath, changeID string) error {
+	cmd := exec.Command("jj", "squash", "-r", changeID)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("squash failed: %s", string(output))
+	}
+	return nil
+}

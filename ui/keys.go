@@ -31,6 +31,12 @@ type KeyMap struct {
 	Space      key.Binding
 	Delete     key.Binding
 	Edit       key.Binding
+
+	// Log view change actions
+	NewChange  key.Binding
+	Describe   key.Binding
+	Abandon    key.Binding
+	SquashChange key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings
@@ -118,6 +124,24 @@ func DefaultKeyMap() KeyMap {
 		Edit: key.NewBinding(
 			key.WithKeys("e"),
 			key.WithHelp("e", "edit"),
+		),
+
+		// Log view change actions
+		NewChange: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "new"),
+		),
+		Describe: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "describe"),
+		),
+		Abandon: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "abandon"),
+		),
+		SquashChange: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "squash"),
 		),
 	}
 }
