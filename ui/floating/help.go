@@ -150,6 +150,15 @@ func (h *HelpOverlay) renderHelp() string {
 		"• Press esc or ? to close overlays")
 	sections = append(sections, specialHelp)
 
+	sections = append(sections, sectionTitleStyle.Render("File Operations"))
+	fileOpsHelp := lipgloss.NewStyle().
+		Foreground(theme.ColorWhite).
+		Render("When viewing files in working copy (@):\n" +
+		"• del/backspace: Discard file changes (uses jj restore)\n" +
+		"• s: Squash file changes to parent commit\n" +
+		"\nNote: All operations are undoable with 'jj undo'")
+	sections = append(sections, fileOpsHelp)
+
 	return strings.Join(sections, "\n")
 }
 

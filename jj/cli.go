@@ -16,10 +16,11 @@ type LogOutput struct {
 
 // ChangeInfo represents a change in the log output.
 type ChangeInfo struct {
-	ChangeID  string
-	CommitID  string
-	StartLine int // First line in RawANSI (0-indexed)
-	EndLine   int // Last line (exclusive)
+	ChangeID      string
+	CommitID      string
+	StartLine     int  // First line in RawANSI (0-indexed)
+	EndLine       int  // Last line (exclusive)
+	IsWorkingCopy bool // True if this is the current working copy (@)
 }
 
 // LogCLI fetches the log using the jj CLI and returns structured output.
@@ -36,16 +37,16 @@ func LogCLI(repoPath string) (*LogOutput, error) {
 	}
 	rawANSI := string(prettyOutput)
 
-	// Pass 2: Get structured metadata
+	// Pass 2: Get structured metadata (including working copy detection)
 	structuredCmd := exec.Command("jj", "log", "--no-graph", "-T",
-		`"[" ++ change_id.short(8) ++ "|" ++ commit_id.short(8) ++ "]\n"`)
+		`"[" ++ change_id.short(8) ++ "|" ++ commit_id.short(8) ++ "|" ++ if(self.current_working_copy(), "wc", "no") ++ "]\n"`)
 	structuredCmd.Dir = repoPath
 	structuredOutput, err := structuredCmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse structured output to get change/commit IDs
+	// Parse structured output to get change/commit IDs and working copy status
 	changes := parseStructuredLog(string(structuredOutput))
 
 	// Build line-to-change mapping by finding change IDs in the pretty output
@@ -93,15 +94,16 @@ func LogCLI(repoPath string) (*LogOutput, error) {
 // parseStructuredLog parses the structured template output into ChangeInfo slices.
 func parseStructuredLog(output string) []ChangeInfo {
 	var changes []ChangeInfo
-	// Match [changeID|commitID]
-	re := regexp.MustCompile(`\[([a-z]+)\|([a-f0-9]+)\]`)
+	// Match [changeID|commitID|wc/no]
+	re := regexp.MustCompile(`\[([a-z]+)\|([a-f0-9]+)\|(wc|no)\]`)
 
 	for _, line := range strings.Split(output, "\n") {
 		matches := re.FindStringSubmatch(line)
-		if len(matches) == 3 {
+		if len(matches) == 4 {
 			changes = append(changes, ChangeInfo{
-				ChangeID: matches[1],
-				CommitID: matches[2],
+				ChangeID:      matches[1],
+				CommitID:      matches[2],
+				IsWorkingCopy: matches[3] == "wc",
 			})
 		}
 	}
@@ -191,6 +193,28 @@ func Edit(repoPath, revisionSpec string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("edit failed: %s", string(output))
+	}
+	return nil
+}
+
+// RestoreFile discards changes to a file in the working copy
+func RestoreFile(repoPath, filePath string) error {
+	cmd := exec.Command("jj", "restore", filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restore failed: %s", string(output))
+	}
+	return nil
+}
+
+// SquashFile moves file changes from working copy to parent
+func SquashFile(repoPath, filePath string) error {
+	cmd := exec.Command("jj", "squash", "--from", "@", "--into", "@-", filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("squash failed: %s", string(output))
 	}
 	return nil
 }

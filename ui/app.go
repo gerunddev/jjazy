@@ -36,8 +36,9 @@ type App struct {
 	repoPath string
 
 	// Experience state
-	currentExperience Experience
-	selectedChangeID  string // Change ID being viewed in ExperienceChange
+	currentExperience       Experience
+	selectedChangeID        string // Change ID being viewed in ExperienceChange
+	selectedChangeIsWorking bool   // True if selected change is working copy (@)
 
 	// Panels - Log Experience (Exp 1)
 	workspacePanel *panels.WorkspacePanel
@@ -212,7 +213,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if a.focusedPanel == 0 {
 					// From Log panel → drill into change
 					if change := a.logPanel.SelectedChange(); change != nil {
-						a.enterChangeExperience(change.ChangeID)
+						a.enterChangeExperience(change.ChangeID, change.IsWorkingCopy)
 						return a, nil
 					}
 				} else if a.focusedPanel == 1 || a.focusedPanel == 2 {
@@ -331,6 +332,58 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			maxPanels := a.maxPanelsForExperience()
 			a.setFocus((a.focusedPanel + maxPanels - 1) % maxPanels)
 			return a, nil
+		}
+
+		// File operations (only in Change experience, Files panel focused, working copy)
+		if a.currentExperience == ExperienceChange && a.focusedPanel == 1 && a.selectedChangeIsWorking {
+			switch {
+			case msg.Type == tea.KeyDelete || msg.Type == tea.KeyBackspace ||
+				msg.String() == "delete" || msg.String() == "backspace":
+				// Restore (discard) file changes - using Delete/Backspace keys
+				if file := a.filesPanel.SelectedFile(); file != nil {
+					_ = jj.RestoreFile(a.repoPath, file.Path) // TODO: handle error
+					a.filesPanel.LoadForChange(a.selectedChangeID)
+
+					// If no files remain, exit to log (consistent with squash)
+					if a.filesPanel.Count() == 0 {
+						a.exitChangeExperience()
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					} else {
+						// Update diff view for remaining files
+						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
+							a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
+						} else {
+							a.diffPanel.LoadChange(a.selectedChangeID)
+						}
+					}
+				}
+				return a, nil
+
+			case msg.String() == "s":
+				// Squash file to parent
+				if file := a.filesPanel.SelectedFile(); file != nil {
+					_ = jj.SquashFile(a.repoPath, file.Path) // TODO: handle error
+					a.filesPanel.LoadForChange(a.selectedChangeID)
+
+					// If no files remain, exit to log
+					if a.filesPanel.Count() == 0 {
+						a.exitChangeExperience()
+						a.logPanel.Refresh()
+						a.workspacePanel.Refresh()
+						a.bookmarksPanel.Refresh()
+					} else {
+						// Update diff view for remaining files
+						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
+							a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
+						} else {
+							a.diffPanel.LoadChange(a.selectedChangeID)
+						}
+					}
+				}
+				return a, nil
+			}
 		}
 
 		// Route to focused panel based on current experience
@@ -485,9 +538,10 @@ func (a *App) setFocus(panel int) {
 }
 
 // enterChangeExperience transitions to the Change experience for a specific change
-func (a *App) enterChangeExperience(changeID string) {
+func (a *App) enterChangeExperience(changeID string, isWorkingCopy bool) {
 	a.currentExperience = ExperienceChange
 	a.selectedChangeID = changeID
+	a.selectedChangeIsWorking = isWorkingCopy
 
 	// Set focus first so files panel renders with correct highlight
 	a.setFocusForExperience()
@@ -510,6 +564,7 @@ func (a *App) enterChangeExperience(changeID string) {
 func (a *App) exitChangeExperience() {
 	a.currentExperience = ExperienceLog
 	a.selectedChangeID = ""
+	a.selectedChangeIsWorking = false
 
 	// Recalculate layout for new experience
 	a.updateLayout()
@@ -641,9 +696,10 @@ func (a *App) renderMainFrame(content string) string {
 func (a *App) renderHelpBar() string {
 	// Build context from current state
 	ctx := HelpBarContext{
-		Experience:   a.currentExperience,
-		FocusedPanel: a.focusedPanel,
-		Entered:      false,
+		Experience:    a.currentExperience,
+		FocusedPanel:  a.focusedPanel,
+		Entered:       false,
+		IsWorkingCopy: a.selectedChangeIsWorking,
 	}
 
 	// Determine entered state based on focused panel

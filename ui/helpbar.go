@@ -9,9 +9,10 @@ import (
 
 // HelpBarContext captures the current UI state for help bar rendering
 type HelpBarContext struct {
-	Experience   Experience
-	FocusedPanel int
-	Entered      bool // True if current panel is in "entered" mode
+	Experience    Experience
+	FocusedPanel  int
+	Entered       bool // True if current panel is in "entered" mode
+	IsWorkingCopy bool // True when viewing @ change
 }
 
 // HelpHint represents a single hint (key + description)
@@ -44,8 +45,18 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 			return nil
 		}
 	case ExperienceChange:
-		// No actions in Change experience currently
-		return nil
+		switch ctx.FocusedPanel {
+		case 1: // Files panel
+			if ctx.IsWorkingCopy {
+				return []HelpHint{
+					{Key: "del", Desc: "discard"},  // PM feedback: "discard" clearer than "restore"
+					{Key: "s", Desc: "squash"},
+				}
+			}
+			return nil
+		default:
+			return nil
+		}
 	}
 	return nil
 }
