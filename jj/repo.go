@@ -126,6 +126,20 @@ func (r *Repo) SetBookmark(name, revisionID string, allowBackwards, ignoreImmuta
 	return ffi.SetBookmark(r.ptr, name, revisionID, allowBackwards, ignoreImmutable)
 }
 
+// WorkspaceAdd creates a new workspace at the given path.
+// If workspaceName is empty, it will be derived from the path basename.
+// If revisionIDs is empty, the new workspace starts from the same parent(s)
+// as the current workspace's working copy (siblings).
+// If revisionIDs is provided, the new workspace starts on top of those revisions.
+func (r *Repo) WorkspaceAdd(destinationPath, workspaceName string, revisionIDs ...string) error {
+	return ffi.WorkspaceAdd(r.ptr, destinationPath, workspaceName, revisionIDs)
+}
+
+// WorkspaceForget removes workspace tracking (keeps files on disk).
+func (r *Repo) WorkspaceForget(workspaceName string) error {
+	return ffi.WorkspaceForget(r.ptr, workspaceName)
+}
+
 // Close closes the repository and frees associated resources.
 func (r *Repo) Close() {
 	if r.ptr != nil {

@@ -47,9 +47,12 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 			}
 		case 1: // Workspace panel
 			if ctx.Entered {
-				return []HelpHint{{Key: "↵", Desc: "edit"}}
+				return []HelpHint{
+					{Key: "↵", Desc: "switch"},
+					{Key: "d", Desc: "forget"},
+				}
 			}
-			return nil
+			return []HelpHint{{Key: "a", Desc: "add"}}
 		case 2: // Bookmarks panel
 			if ctx.Entered {
 				return []HelpHint{

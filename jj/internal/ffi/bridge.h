@@ -72,4 +72,20 @@ void jj_free_string(char* s);
 JjResult jj_set_bookmark(RepoHandle* handle, const char* name, const char* revision_id,
                          int allow_backwards, int ignore_immutable);
 
+/**
+ * Add a new workspace at the given path.
+ *
+ * @param handle Repository handle
+ * @param destination_path Path where workspace should be created
+ * @param workspace_name Name for the workspace (NULL to derive from path)
+ * @param revision_ids Comma-separated revision ID prefixes for parent commits,
+ *                     or NULL to use parent(s) of current workspace's working copy
+ * @return JjResult with empty data on success, or error message on failure
+ */
+JjResult jj_workspace_add(RepoHandle* handle, const char* destination_path, const char* workspace_name, const char* revision_ids);
+
+// Forget a workspace by name (removes tracking, keeps files on disk)
+// Returns JjResult with empty success or error message
+JjResult jj_workspace_forget(RepoHandle* handle, const char* workspace_name);
+
 #endif // JJ_BRIDGE_H

@@ -27,7 +27,7 @@ clean:
 
 # Run the application (no DYLD_LIBRARY_PATH needed!)
 run: all
-	./jjazy
+	JJAZY_LOG_FILE=/tmp/jjazy.log JJAZY_LOG_LEVEL=debug ./jjazy
 
 # Install the binary to /usr/local/bin
 install: release

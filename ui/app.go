@@ -192,12 +192,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.textInputOverlay = nil
 
 				// Execute the action based on textInputAction
-				if a.textInputAction == "describe" {
+				switch a.textInputAction {
+				case "describe":
 					if change := a.logPanel.SelectedChange(); change != nil {
 						_ = jj.Describe(a.repoPath, change.ChangeID, value)
 						a.logPanel.Refresh()
 						a.workspacePanel.Refresh()
 						a.bookmarksPanel.Refresh()
+					}
+				case "workspace_add":
+					if value != "" {
+						if err := a.repo.WorkspaceAdd(value, ""); err != nil {
+							a.showInfoDialog("Error", err.Error())
+						} else {
+							a.workspacePanel.Refresh()
+						}
 					}
 				}
 				a.textInputAction = ""
@@ -346,12 +355,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if !a.workspacePanel.IsEntered() {
 						a.workspacePanel.SetEntered(true)
 					} else if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
-						_ = jj.WorkspaceSwitch(a.repoPath, ws.Name)
-						a.workspacePanel.SetEntered(false)
-						a.setFocus(0) // Return to log view
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						// Switch workspace using jj-lib (close and reopen repo)
+						if err := a.switchWorkspace(ws.RootPath); err != nil {
+							a.showInfoDialog("Error", err.Error())
+						} else {
+							a.workspacePanel.SetEntered(false)
+							a.setFocus(0) // Return to log view
+						}
 					}
 					return a, nil
 				case 2: // Bookmarks panel
@@ -494,6 +504,42 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.logPanel.Refresh()
 					a.workspacePanel.Refresh()
 					a.bookmarksPanel.Refresh()
+				}
+				return a, nil
+			}
+		}
+
+		// Workspace panel actions
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 {
+			// 'a' key in focus mode (not entered) - add workspace
+			if msg.String() == "a" && !a.workspacePanel.IsEntered() {
+				a.textInputOverlay = floating.NewTextInputOverlay(
+					"Add Workspace",
+					"Enter destination path...",
+					"",
+				)
+				a.textInputOverlay.SetSize(a.width, a.height-1)
+				a.showTextInput = true
+				a.textInputAction = "workspace_add"
+				return a, nil
+			}
+
+			// 'd' key in cursor mode (entered) - forget workspace
+			if msg.String() == "d" && a.workspacePanel.IsEntered() {
+				if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
+					if ws.IsCurrent {
+						a.showInfoDialog("Error", "Cannot forget current workspace")
+					} else {
+						if err := a.repo.WorkspaceForget(ws.Name); err != nil {
+							a.showInfoDialog("Error", err.Error())
+						} else {
+							// Adjust cursor if needed and refresh
+							if a.workspacePanel.Cursor() >= a.workspacePanel.Count()-1 {
+								a.workspacePanel.SetCursor(a.workspacePanel.Count() - 2)
+							}
+							a.workspacePanel.Refresh()
+						}
+					}
 				}
 				return a, nil
 			}
@@ -1170,4 +1216,38 @@ func (a *App) overlayInfo(background string) string {
 	}
 
 	return strings.Join(bgLines, "\n")
+}
+
+// switchWorkspace switches to a different workspace by closing and reopening the repo
+func (a *App) switchWorkspace(workspacePath string) error {
+	// Close old repo
+	a.repo.Close()
+
+	// Open new repo at workspace path
+	newRepo, err := jj.Open(workspacePath)
+	if err != nil {
+		// Try to reopen old repo on failure
+		a.repo, _ = jj.Open(a.repoPath)
+		return err
+	}
+
+	// Replace repo and path
+	a.repo = newRepo
+	a.repoPath = workspacePath
+
+	// Recreate all panels with new repo
+	a.workspacePanel = panels.NewWorkspacePanel(a.repo)
+	a.bookmarksPanel = panels.NewBookmarksPanel(a.repo, a.repoPath)
+	a.logPanel = panels.NewLogPanel(a.repoPath)
+
+	a.filesPanel = panels.NewFilesPanel(a.repo)
+	a.filesPanel.SetRepoPath(a.repoPath)
+
+	a.diffPanel = panels.NewDiffViewer(a.repo)
+	a.diffPanel.SetRepoPath(a.repoPath)
+
+	// Update layout to resize panels
+	a.updateLayout()
+
+	return nil
 }

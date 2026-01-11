@@ -18,6 +18,7 @@ use jj_lib::workspace::{default_working_copy_factories, Workspace};
 pub struct RepoHandle {
     repo: Arc<ReadonlyRepo>,
     current_workspace: String,
+    repo_root: String, // Directory where repo was opened
 }
 
 /// Result structure for FFI calls
@@ -42,6 +43,7 @@ struct WorkspaceInfo {
     name: String,
     is_current: bool,
     commit_id: String,
+    root_path: String, // Absolute path to workspace directory
 }
 
 /// File change information for serialization
@@ -105,7 +107,8 @@ fn create_user_settings() -> Result<UserSettings, String> {
     use jj_lib::config::{ConfigLayer, ConfigSource};
     use std::fs;
 
-    let mut config = StackedConfig::empty();
+    // Start with jj-lib's built-in defaults (includes experimental settings)
+    let mut config = StackedConfig::with_defaults();
 
     // Built-in defaults that match what jj expects
     let defaults = ConfigLayer::parse(
@@ -159,6 +162,9 @@ fn create_user_settings() -> Result<UserSettings, String> {
 
         [fsmonitor]
         backend = "none"
+
+        [experimental]
+        record-predecessors-in-commit = false
         "#,
     )
     .map_err(|e| e.to_string())?;
@@ -212,11 +218,13 @@ pub extern "C" fn jj_open_repo(path: *const c_char) -> *mut RepoHandle {
     match Workspace::load(&settings, path, &Default::default(), &working_copy_factories) {
         Ok(workspace) => {
             let workspace_name = workspace.workspace_name().as_str().to_string();
+            let workspace_root = workspace.workspace_root().to_string_lossy().to_string();
             match workspace.repo_loader().load_at_head() {
                 Ok(repo) => {
                     let handle = Box::new(RepoHandle {
                         repo,
                         current_workspace: workspace_name,
+                        repo_root: workspace_root,
                     });
                     Box::into_raw(handle)
                 }
@@ -273,13 +281,32 @@ pub extern "C" fn jj_list_workspaces(handle: *mut RepoHandle) -> JjResult {
 
     let mut workspaces = Vec::new();
 
+    // Get the parent directory of current workspace for computing sibling paths
+    let repo_root_path = Path::new(&handle.repo_root);
+    let parent_dir = repo_root_path.parent();
+
     // Get all workspaces from the view's working copy commit IDs
     for (workspace_id, commit_id) in handle.repo.view().wc_commit_ids() {
         let ws_name = workspace_id.as_str().to_string();
+        let is_current = ws_name == handle.current_workspace;
+
+        // Compute root_path:
+        // - For current workspace: use repo_root
+        // - For other workspaces: use sibling directory convention (parent_dir/workspace_name)
+        let root_path = if is_current {
+            handle.repo_root.clone()
+        } else if let Some(parent) = parent_dir {
+            parent.join(&ws_name).to_string_lossy().to_string()
+        } else {
+            // Fallback: just use workspace name (relative path)
+            ws_name.clone()
+        };
+
         workspaces.push(WorkspaceInfo {
-            name: ws_name.clone(),
-            is_current: ws_name == handle.current_workspace,
+            name: ws_name,
+            is_current,
             commit_id: commit_id.hex(),
+            root_path,
         });
     }
 
@@ -289,6 +316,345 @@ pub extern "C" fn jj_list_workspaces(handle: *mut RepoHandle) -> JjResult {
     match serde_json::to_string(&workspaces) {
         Ok(json) => JjResult::success(json),
         Err(e) => JjResult::error(format!("JSON serialization failed: {}", e)),
+    }
+}
+
+/// Get the parent commit ID(s) of the current workspace's working copy
+fn get_current_wc_parent_ids(handle: &RepoHandle) -> Result<Vec<jj_lib::backend::CommitId>, String> {
+    // Find current workspace's working copy commit
+    let wc_commit_id = handle.repo.view().wc_commit_ids()
+        .iter()
+        .find(|(ws_id, _)| ws_id.as_str() == handle.current_workspace)
+        .map(|(_, commit_id)| commit_id.clone())
+        .ok_or_else(|| "No working copy found for current workspace".to_string())?;
+
+    // Get the commit
+    let wc_commit = handle.repo.store().get_commit(&wc_commit_id)
+        .map_err(|e| format!("Failed to get working copy commit: {}", e))?;
+
+    // Return parent IDs
+    Ok(wc_commit.parent_ids().to_vec())
+}
+
+/// Resolve revision spec strings (commit ID prefixes) to commit IDs.
+/// The search is limited to MAX_REVISION_SEARCH_DEPTH commits to avoid
+/// unbounded walks in very large repositories.
+const MAX_REVISION_SEARCH_DEPTH: usize = 10000;
+
+fn resolve_revision_specs(handle: &RepoHandle, specs: &[String]) -> Result<Vec<jj_lib::backend::CommitId>, String> {
+    use std::collections::HashSet;
+
+    let mut result = Vec::new();
+
+    for spec in specs {
+        // Walk from working copy commits to find matching revision
+        let mut found: Option<jj_lib::backend::CommitId> = None;
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut to_visit: Vec<jj_lib::backend::CommitId> = Vec::new();
+
+        for (_ws_id, commit_id) in handle.repo.view().wc_commit_ids() {
+            to_visit.push(commit_id.clone());
+        }
+
+        while let Some(commit_id) = to_visit.pop() {
+            // Depth limit to avoid unbounded walks in large repos
+            if visited.len() >= MAX_REVISION_SEARCH_DEPTH {
+                break;
+            }
+
+            let hex = commit_id.hex();
+            if visited.contains(&hex) {
+                continue;
+            }
+            visited.insert(hex.clone());
+
+            if hex.starts_with(spec) {
+                found = Some(commit_id);
+                break;
+            }
+
+            if let Ok(c) = handle.repo.store().get_commit(&commit_id) {
+                for parent_id in c.parent_ids() {
+                    if !visited.contains(&parent_id.hex()) {
+                        to_visit.push(parent_id.clone());
+                    }
+                }
+            }
+        }
+
+        match found {
+            Some(id) => result.push(id),
+            None => return Err(format!("Revision not found: {}", spec)),
+        }
+    }
+
+    Ok(result)
+}
+
+/// Add a new workspace at the given path
+/// Creates directory if needed, initializes workspace with existing repo
+/// If revision_ids is NULL or empty, the new workspace will be created as a sibling
+/// of the current workspace's working copy (sharing the same parent commits).
+/// If revision_ids is provided (comma-separated), those commits become the parents.
+/// Returns JjResult with empty success or error message
+#[no_mangle]
+pub extern "C" fn jj_workspace_add(
+    handle: *mut RepoHandle,
+    destination_path: *const c_char,
+    workspace_name: *const c_char,
+    revision_ids: *const c_char,
+) -> JjResult {
+    use jj_lib::ref_name::WorkspaceNameBuf;
+    use jj_lib::local_working_copy::LocalWorkingCopyFactory;
+    use std::fs;
+
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &mut *handle
+    };
+
+    let dest_path_str = unsafe {
+        if destination_path.is_null() {
+            return JjResult::error("null destination_path".to_string());
+        }
+        match CStr::from_ptr(destination_path).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid destination_path UTF-8: {}", e)),
+        }
+    };
+
+    // Parse revision IDs (comma-separated or NULL for default)
+    let revision_specs: Vec<String> = unsafe {
+        if revision_ids.is_null() {
+            Vec::new()  // Empty means "use default" (parent of current @)
+        } else {
+            match CStr::from_ptr(revision_ids).to_str() {
+                Ok(s) if s.is_empty() => Vec::new(),
+                Ok(s) => s.split(',').map(|r| r.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                Err(e) => return JjResult::error(format!("invalid revision_ids UTF-8: {}", e)),
+            }
+        }
+    };
+
+    // Get workspace name - use provided name or derive from path basename
+    let ws_name = unsafe {
+        if workspace_name.is_null() {
+            // Derive from destination path basename
+            Path::new(dest_path_str)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("default")
+                .to_string()
+        } else {
+            match CStr::from_ptr(workspace_name).to_str() {
+                Ok(s) => s.to_string(),
+                Err(e) => return JjResult::error(format!("invalid workspace_name UTF-8: {}", e)),
+            }
+        }
+    };
+
+    // Convert to absolute path
+    let dest_path = Path::new(dest_path_str);
+    let abs_dest_path = if dest_path.is_absolute() {
+        dest_path.to_path_buf()
+    } else {
+        // Resolve relative to repo root's parent
+        Path::new(&handle.repo_root)
+            .parent()
+            .unwrap_or(Path::new("/"))
+            .join(dest_path)
+    };
+
+    // Validate path: must not exist OR be an empty directory
+    if abs_dest_path.exists() {
+        if abs_dest_path.is_file() {
+            return JjResult::error(format!("Path exists and is a file: {}", abs_dest_path.display()));
+        }
+        // Check if directory is empty or only contains .jj
+        match fs::read_dir(&abs_dest_path) {
+            Ok(entries) => {
+                let non_jj_entries: Vec<_> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.file_name() != ".jj")
+                    .collect();
+                if !non_jj_entries.is_empty() {
+                    return JjResult::error(format!(
+                        "Directory is not empty: {}",
+                        abs_dest_path.display()
+                    ));
+                }
+            }
+            Err(e) => {
+                return JjResult::error(format!(
+                    "Cannot read directory {}: {}",
+                    abs_dest_path.display(),
+                    e
+                ));
+            }
+        }
+    } else {
+        // Create the directory
+        if let Err(e) = fs::create_dir_all(&abs_dest_path) {
+            return JjResult::error(format!(
+                "Failed to create directory {}: {}",
+                abs_dest_path.display(),
+                e
+            ));
+        }
+    }
+
+    // Determine parent commit(s) for new workspace's working copy
+    let parent_ids: Vec<jj_lib::backend::CommitId> = if revision_specs.is_empty() {
+        // Default: use parent(s) of current workspace's working copy
+        match get_current_wc_parent_ids(handle) {
+            Ok(ids) => ids,
+            Err(e) => return JjResult::error(e),
+        }
+    } else {
+        // Explicit: resolve the specified revision(s)
+        match resolve_revision_specs(handle, &revision_specs) {
+            Ok(ids) => ids,
+            Err(e) => return JjResult::error(e),
+        }
+    };
+
+    // Handle edge case: if no parents (root commit scenario), use root
+    let parent_ids = if parent_ids.is_empty() {
+        vec![handle.repo.store().root_commit_id().clone()]
+    } else {
+        parent_ids
+    };
+
+    // Initialize workspace with existing repo
+    let workspace_name_buf = WorkspaceNameBuf::from(ws_name.clone());
+    let working_copy_factory = LocalWorkingCopyFactory {};
+
+    // The repo path is at workspace_root/.jj/repo
+    let repo_path = Path::new(&handle.repo_root).join(".jj").join("repo");
+
+    match Workspace::init_workspace_with_existing_repo(
+        &abs_dest_path,
+        &repo_path,
+        &handle.repo,
+        &working_copy_factory,
+        workspace_name_buf.clone(),
+    ) {
+        Ok((workspace, new_repo)) => {
+            // Now we need to update the new workspace's working copy to have correct parents
+            // Start a transaction to create the new working copy commit
+            let mut tx = new_repo.start_transaction();
+
+            // Get parent commits
+            let parents: Vec<Commit> = parent_ids.iter()
+                .filter_map(|id| tx.repo().store().get_commit(id).ok())
+                .collect();
+
+            if parents.is_empty() {
+                return JjResult::error("Failed to resolve parent commits".to_string());
+            }
+
+            // Get the tree from first parent
+            let parent_tree: MergedTree = parents[0].tree();
+
+            // Create new empty commit with correct parents
+            let new_commit = tx.repo_mut().new_commit(
+                parents.iter().map(|c| c.id().clone()).collect(),
+                parent_tree,
+            ).write();
+
+            let new_commit = match new_commit {
+                Ok(c) => c,
+                Err(e) => return JjResult::error(format!("Failed to write commit: {}", e)),
+            };
+
+            // Set this as the workspace's working copy
+            if let Err(e) = tx.repo_mut().set_wc_commit(workspace_name_buf.clone(), new_commit.id().clone()) {
+                return JjResult::error(format!("Failed to set working copy: {:?}", e));
+            }
+
+            // Commit the transaction
+            let parent_hexes: Vec<String> = parent_ids.iter()
+                .map(|id| {
+                    let hex = id.hex();
+                    hex[..8.min(hex.len())].to_string()
+                })
+                .collect();
+            let description = format!("create workspace {} at {}", ws_name, parent_hexes.join(", "));
+            match tx.commit(&description) {
+                Ok(final_repo) => {
+                    handle.repo = final_repo;
+                    let _ = workspace; // Workspace is consumed
+                    JjResult::success("".to_string())
+                }
+                Err(e) => JjResult::error(format!("Failed to commit transaction: {}", e)),
+            }
+        }
+        Err(e) => JjResult::error(format!("Failed to create workspace: {:?}", e)),
+    }
+}
+
+/// Forget a workspace by name
+/// Removes workspace tracking from repo (does not delete files on disk)
+/// Returns JjResult with empty success or error message
+#[no_mangle]
+pub extern "C" fn jj_workspace_forget(
+    handle: *mut RepoHandle,
+    workspace_name: *const c_char,
+) -> JjResult {
+    use jj_lib::ref_name::WorkspaceNameBuf;
+
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &mut *handle
+    };
+
+    let ws_name = unsafe {
+        if workspace_name.is_null() {
+            return JjResult::error("null workspace_name".to_string());
+        }
+        match CStr::from_ptr(workspace_name).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid workspace_name UTF-8: {}", e)),
+        }
+    };
+
+    // Cannot forget current workspace
+    if ws_name == handle.current_workspace {
+        return JjResult::error("Cannot forget current workspace".to_string());
+    }
+
+    // Check if workspace exists by iterating through wc_commit_ids
+    let workspace_exists = handle.repo.view().wc_commit_ids()
+        .iter()
+        .any(|(ws_id, _)| ws_id.as_str() == ws_name);
+
+    if !workspace_exists {
+        return JjResult::error(format!("Workspace not found: {}", ws_name));
+    }
+
+    // Create workspace ID using WorkspaceNameBuf
+    let workspace_name_buf = WorkspaceNameBuf::from(ws_name.to_string());
+
+    // Start a transaction to remove the workspace
+    let mut tx = handle.repo.start_transaction();
+
+    // Remove the working copy commit for this workspace
+    if let Err(e) = tx.repo_mut().remove_wc_commit(&workspace_name_buf) {
+        return JjResult::error(format!("Failed to remove workspace: {:?}", e));
+    }
+
+    // Commit the transaction
+    let description = format!("forget workspace {}", ws_name);
+    match tx.commit(&description) {
+        Ok(new_repo) => {
+            handle.repo = new_repo;
+            JjResult::success("".to_string())
+        }
+        Err(e) => JjResult::error(format!("Failed to commit transaction: {}", e)),
     }
 }
 
@@ -1122,14 +1488,16 @@ pub extern "C" fn jj_free_string(s: *mut c_char) {
     }
 }
 
-/// Set a bookmark to point to a specific revision
+/// Set a bookmark to point to a specific revision.
+///
 /// Parameters:
 /// - handle: repository handle
 /// - name: bookmark name (C string)
 /// - revision_id: target revision ID prefix (C string)
 /// - allow_backwards: if true, allow moving bookmark backwards in history
 /// - ignore_immutable: if true, allow setting bookmark on immutable revisions
-/// Returns JjResult with empty success or error message
+///
+/// Returns JjResult with empty success or error message.
 #[no_mangle]
 pub extern "C" fn jj_set_bookmark(
     handle: *mut RepoHandle,

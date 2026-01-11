@@ -9,6 +9,7 @@ package ffi
 import "C"
 import (
 	"errors"
+	"strings"
 	"unsafe"
 )
 
@@ -298,6 +299,70 @@ func SetBookmark(repo RepoPtr, name, revisionID string, allowBackwards, ignoreIm
 	}
 
 	result := C.jj_set_bookmark((*C.RepoHandle)(repo), cname, crevID, allowBackwardsInt, ignoreImmutableInt)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		err := errors.New(errMsg)
+		done(err)
+		return err
+	}
+
+	done(nil)
+	return nil
+}
+
+// WorkspaceAdd creates a new workspace at the given path.
+// revisionIDs specifies parent commits for the new workspace's working copy.
+// If empty, defaults to parent(s) of current workspace's working copy.
+func WorkspaceAdd(repo RepoPtr, destinationPath, workspaceName string, revisionIDs []string) error {
+	done := logOp("WorkspaceAdd",
+		"destinationPath", truncate(destinationPath, 100),
+		"workspaceName", truncate(workspaceName, 50),
+		"revisionIDs", revisionIDs,
+	)
+
+	cDestPath := C.CString(destinationPath)
+	defer C.free(unsafe.Pointer(cDestPath))
+
+	var cWsName *C.char
+	if workspaceName != "" {
+		cWsName = C.CString(workspaceName)
+		defer C.free(unsafe.Pointer(cWsName))
+	}
+
+	// Convert revision IDs to comma-separated string
+	var cRevIDs *C.char
+	if len(revisionIDs) > 0 {
+		revIDStr := strings.Join(revisionIDs, ",")
+		cRevIDs = C.CString(revIDStr)
+		defer C.free(unsafe.Pointer(cRevIDs))
+	}
+
+	result := C.jj_workspace_add((*C.RepoHandle)(repo), cDestPath, cWsName, cRevIDs)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		err := errors.New(errMsg)
+		done(err)
+		return err
+	}
+
+	done(nil)
+	return nil
+}
+
+// WorkspaceForget removes workspace tracking (keeps files on disk)
+func WorkspaceForget(repo RepoPtr, workspaceName string) error {
+	done := logOp("WorkspaceForget",
+		"workspaceName", truncate(workspaceName, 50),
+	)
+
+	cWsName := C.CString(workspaceName)
+	defer C.free(unsafe.Pointer(cWsName))
+
+	result := C.jj_workspace_forget((*C.RepoHandle)(repo), cWsName)
 	defer C.jj_free_result(result)
 
 	if result.error != nil {

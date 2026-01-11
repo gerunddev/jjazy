@@ -143,7 +143,7 @@ func TestGetActionHintsExperienceLog(t *testing.T) {
 				Entered:       false,
 				IsWorkingCopy: false,
 			},
-			expectedCount: 0,
+			expectedCount: 1, // add
 		},
 		{
 			name: "Workspace panel entered",
@@ -153,7 +153,7 @@ func TestGetActionHintsExperienceLog(t *testing.T) {
 				Entered:       true,
 				IsWorkingCopy: false,
 			},
-			expectedCount: 1,
+			expectedCount: 2, // switch, forget
 		},
 		{
 			name: "Bookmarks panel not entered",

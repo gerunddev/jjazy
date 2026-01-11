@@ -175,17 +175,6 @@ func DiffForChangeFile(repoPath, changeID, filePath string) (string, error) {
 	return string(output), nil
 }
 
-// WorkspaceSwitch switches to a different workspace.
-func WorkspaceSwitch(repoPath, workspaceName string) error {
-	cmd := exec.Command("jj", "workspace", "switch", workspaceName)
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("workspace switch failed: %s", string(output))
-	}
-	return nil
-}
-
 // Edit runs jj edit to edit a specific revision.
 func Edit(repoPath, revisionSpec string) error {
 	cmd := exec.Command("jj", "edit", revisionSpec)

@@ -15,6 +15,7 @@ type Workspace struct {
 	Name      string `json:"name"`
 	IsCurrent bool   `json:"is_current"`
 	CommitID  string `json:"commit_id"`
+	RootPath  string `json:"root_path"` // Absolute path to workspace directory
 }
 
 // FileChange represents a changed file in the working copy.
