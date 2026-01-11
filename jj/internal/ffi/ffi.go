@@ -196,3 +196,30 @@ func CloseRepo(repo RepoPtr) {
 		C.jj_close_repo((*C.RepoHandle)(repo))
 	}
 }
+
+// SetBookmark sets a bookmark to point to a specific revision
+func SetBookmark(repo RepoPtr, name, revisionID string, allowBackwards, ignoreImmutable bool) error {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+
+	crevID := C.CString(revisionID)
+	defer C.free(unsafe.Pointer(crevID))
+
+	var allowBackwardsInt, ignoreImmutableInt C.int
+	if allowBackwards {
+		allowBackwardsInt = 1
+	}
+	if ignoreImmutable {
+		ignoreImmutableInt = 1
+	}
+
+	result := C.jj_set_bookmark((*C.RepoHandle)(repo), cname, crevID, allowBackwardsInt, ignoreImmutableInt)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		return errors.New(errMsg)
+	}
+
+	return nil
+}

@@ -7,10 +7,11 @@ import (
 // TestHelpBarContextFields verifies the HelpBarContext structure has all required fields
 func TestHelpBarContextFields(t *testing.T) {
 	ctx := HelpBarContext{
-		Experience:    ExperienceChange,
-		FocusedPanel:  1,
-		Entered:       false,
-		IsWorkingCopy: true,
+		Experience:      ExperienceChange,
+		FocusedPanel:    1,
+		Entered:         false,
+		IsWorkingCopy:   true,
+		BookmarkSetMode: false,
 	}
 
 	if ctx.Experience != ExperienceChange {
@@ -24,6 +25,9 @@ func TestHelpBarContextFields(t *testing.T) {
 	}
 	if !ctx.IsWorkingCopy {
 		t.Errorf("Expected IsWorkingCopy to be true, got %v", ctx.IsWorkingCopy)
+	}
+	if ctx.BookmarkSetMode {
+		t.Errorf("Expected BookmarkSetMode to be false, got %v", ctx.BookmarkSetMode)
 	}
 }
 
@@ -118,7 +122,18 @@ func TestGetActionHintsExperienceLog(t *testing.T) {
 				Entered:       false,
 				IsWorkingCopy: false,
 			},
-			expectedCount: 1,
+			expectedCount: 5, // edit, new, describe, abandon, squash
+		},
+		{
+			name: "Log panel in bookmark set mode",
+			ctx: HelpBarContext{
+				Experience:      ExperienceLog,
+				FocusedPanel:    0,
+				Entered:         false,
+				IsWorkingCopy:   false,
+				BookmarkSetMode: true,
+			},
+			expectedCount: 1, // set
 		},
 		{
 			name: "Workspace panel not entered",
@@ -158,7 +173,7 @@ func TestGetActionHintsExperienceLog(t *testing.T) {
 				Entered:       true,
 				IsWorkingCopy: false,
 			},
-			expectedCount: 1,
+			expectedCount: 2, // set, edit
 		},
 	}
 
@@ -188,6 +203,17 @@ func TestGetNavigationHints(t *testing.T) {
 				IsWorkingCopy: false,
 			},
 			expectedCount: 1,
+		},
+		{
+			name: "Log panel in bookmark set mode",
+			ctx: HelpBarContext{
+				Experience:      ExperienceLog,
+				FocusedPanel:    0,
+				Entered:         false,
+				IsWorkingCopy:   false,
+				BookmarkSetMode: true,
+			},
+			expectedCount: 2, // cancel, select
 		},
 		{
 			name: "Workspace not entered",

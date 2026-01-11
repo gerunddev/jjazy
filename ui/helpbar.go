@@ -9,10 +9,11 @@ import (
 
 // HelpBarContext captures the current UI state for help bar rendering
 type HelpBarContext struct {
-	Experience    Experience
-	FocusedPanel  int
-	Entered       bool // True if current panel is in "entered" mode
-	IsWorkingCopy bool // True when viewing @ change
+	Experience      Experience
+	FocusedPanel    int
+	Entered         bool // True if current panel is in "entered" mode
+	IsWorkingCopy   bool // True when viewing @ change
+	BookmarkSetMode bool // True when in bookmark set flow
 }
 
 // HelpHint represents a single hint (key + description)
@@ -32,6 +33,11 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 	case ExperienceLog:
 		switch ctx.FocusedPanel {
 		case 0: // Log panel
+			if ctx.BookmarkSetMode {
+				return []HelpHint{
+					{Key: "↵", Desc: "set"},
+				}
+			}
 			return []HelpHint{
 				{Key: "↵", Desc: "edit"},
 				{Key: "n", Desc: "new"},
@@ -46,7 +52,10 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 			return nil
 		case 2: // Bookmarks panel
 			if ctx.Entered {
-				return []HelpHint{{Key: "↵", Desc: "edit"}}
+				return []HelpHint{
+					{Key: "↵", Desc: "set"},
+					{Key: "e", Desc: "edit"},
+				}
 			}
 			return nil
 		}
@@ -73,6 +82,12 @@ func getNavigationHints(ctx HelpBarContext) []HelpHint {
 	case ExperienceLog:
 		switch ctx.FocusedPanel {
 		case 0: // Log panel
+			if ctx.BookmarkSetMode {
+				return []HelpHint{
+					{Key: "←", Desc: "cancel"},
+					{Key: "↑↓", Desc: "select"},
+				}
+			}
 			return []HelpHint{
 				{Key: "→", Desc: "view"},
 			}

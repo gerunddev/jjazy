@@ -56,6 +56,20 @@ type App struct {
 	showTextInput    bool
 	textInputAction  string // "describe" - indicates what action is being performed
 
+	// Confirm overlay
+	confirmOverlay *floating.ConfirmOverlay
+	showConfirm    bool
+	confirmAction  string // "immutable" or "backwards"
+
+	// Info overlay (for errors)
+	infoOverlay *floating.InfoOverlay
+	showInfo    bool
+
+	// Bookmark set mode state
+	bookmarkSetMode   bool   // True when in bookmark set flow
+	bookmarkSetName   string // Name of bookmark being set
+	bookmarkSetCursor int    // Preserved cursor position in bookmarks panel
+
 	// State
 	focusedPanel int // Experience-relative: 0=main, 1=sidebar1, 2=sidebar2
 	keys         KeyMap
@@ -128,6 +142,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// Handle info overlay first if visible (any key dismisses)
+		if a.showInfo {
+			if msg.String() == "enter" || msg.String() == "esc" || msg.String() == "escape" {
+				a.showInfo = false
+				a.infoOverlay = nil
+				return a, nil
+			}
+			return a, nil
+		}
+
+		// Handle confirm overlay first if visible
+		if a.showConfirm {
+			switch msg.String() {
+			case "esc", "escape", "ctrl+g", "ctrl+c":
+				// Cancel confirmation
+				a.showConfirm = false
+				a.confirmOverlay = nil
+				a.confirmAction = ""
+				return a, nil
+			case "enter":
+				// Process confirmation
+				if a.confirmOverlay.Confirmed() {
+					a.handleConfirmAction()
+				}
+				a.showConfirm = false
+				a.confirmOverlay = nil
+				a.confirmAction = ""
+				return a, nil
+			default:
+				_, cmd := a.confirmOverlay.Update(msg)
+				return a, cmd
+			}
+		}
+
 		// Handle floating text input first if visible
 		if a.showTextInput {
 			switch msg.String() {
@@ -190,7 +238,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.String() == "escape",
 			msg.String() == "ctrl+g",
 			msg.Type == tea.KeyCtrlG:
-			// First check if we need to exit cursor mode in browsable panels
+			// First check if we're in bookmark set mode
+			if a.bookmarkSetMode {
+				a.exitBookmarkSetMode()
+				return a, nil
+			}
+			// Check if we need to exit cursor mode in browsable panels
 			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
 				a.workspacePanel.SetEntered(false)
 				return a, nil
@@ -207,7 +260,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.Type == tea.KeyLeft, msg.String() == "left":
 			// Left arrow navigation
-			// First check if we need to exit entered mode
+			// First check if we're in bookmark set mode and on log panel
+			if a.bookmarkSetMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+				a.exitBookmarkSetMode()
+				return a, nil
+			}
+			// Check if we need to exit entered mode
 			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
 				a.workspacePanel.SetEntered(false)
 				return a, nil
@@ -268,7 +326,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, a.keys.Enter):
 			if a.currentExperience == ExperienceLog {
 				switch a.focusedPanel {
-				case 0: // Log panel - jj edit
+				case 0: // Log panel
+					if a.bookmarkSetMode {
+						// Confirm bookmark set
+						if change := a.logPanel.SelectedChange(); change != nil {
+							a.executeBookmarkSet(change.CommitID)
+						}
+						return a, nil
+					}
+					// Normal: jj edit
 					if change := a.logPanel.SelectedChange(); change != nil {
 						_ = jj.Edit(a.repoPath, change.ChangeID)
 						a.logPanel.Refresh()
@@ -292,18 +358,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if !a.bookmarksPanel.IsEntered() {
 						a.bookmarksPanel.SetEntered(true)
 					} else if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
-						// Use Navigation to find edit target (tip of branch or boundary)
-						if revisions, err := a.repo.Log(); err == nil {
-							nav := app.NewNavigation(a.repoPath, revisions)
-							if target := nav.FindBookmarkEditTarget(bm.Name); target != nil {
-								_ = nav.EditRevision(target.ChangeID)
-							}
-						}
-						a.bookmarksPanel.SetEntered(false)
-						a.setFocus(0) // Return to log view
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						// Enter starts bookmark set mode
+						a.enterBookmarkSetMode(bm.Name)
 					}
 					return a, nil
 				}
@@ -414,6 +470,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Squash change into parent
 				if change := a.logPanel.SelectedChange(); change != nil {
 					_ = jj.Squash(a.repoPath, change.ChangeID)
+					a.logPanel.Refresh()
+					a.workspacePanel.Refresh()
+					a.bookmarksPanel.Refresh()
+				}
+				return a, nil
+			}
+		}
+
+		// Bookmark edit action ('e' key in bookmarks panel when entered)
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			if msg.String() == "e" {
+				if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
+					// Use Navigation to find edit target (tip of branch or boundary)
+					if revisions, err := a.repo.Log(); err == nil {
+						nav := app.NewNavigation(a.repoPath, revisions)
+						if target := nav.FindBookmarkEditTarget(bm.Name); target != nil {
+							_ = nav.EditRevision(target.ChangeID)
+						}
+					}
+					a.bookmarksPanel.SetEntered(false)
+					a.setFocus(0) // Return to log view
 					a.logPanel.Refresh()
 					a.workspacePanel.Refresh()
 					a.bookmarksPanel.Refresh()
@@ -551,6 +628,16 @@ func (a *App) View() string {
 	// Overlay text input if visible
 	if a.showTextInput {
 		fullView = a.overlayTextInput(fullView)
+	}
+
+	// Overlay confirm dialog if visible
+	if a.showConfirm {
+		fullView = a.overlayConfirm(fullView)
+	}
+
+	// Overlay info dialog if visible
+	if a.showInfo {
+		fullView = a.overlayInfo(fullView)
 	}
 
 	return fullView
@@ -789,10 +876,11 @@ func (a *App) renderMainFrame(content string) string {
 func (a *App) renderHelpBar() string {
 	// Build context from current state
 	ctx := HelpBarContext{
-		Experience:    a.currentExperience,
-		FocusedPanel:  a.focusedPanel,
-		Entered:       false,
-		IsWorkingCopy: a.selectedChangeIsWorking,
+		Experience:      a.currentExperience,
+		FocusedPanel:    a.focusedPanel,
+		Entered:         false,
+		IsWorkingCopy:   a.selectedChangeIsWorking,
+		BookmarkSetMode: a.bookmarkSetMode,
 	}
 
 	// Determine entered state based on focused panel
@@ -926,4 +1014,160 @@ func (a *App) forwardMouseToPanel(panelIndex int, msg tea.MouseMsg) (tea.Model, 
 		}
 	}
 	return a, cmd
+}
+
+// enterBookmarkSetMode starts the bookmark set flow
+func (a *App) enterBookmarkSetMode(bookmarkName string) {
+	a.bookmarkSetMode = true
+	a.bookmarkSetName = bookmarkName
+	a.bookmarkSetCursor = a.bookmarksPanel.Cursor()
+
+	// Update log panel title to "Set"
+	a.logPanel.SetTitle("0 Set")
+
+	// Exit entered mode in bookmarks panel and focus log panel
+	a.bookmarksPanel.SetEntered(false)
+	a.setFocus(0)
+
+	// Try to find the bookmark's current location in the log and select it
+	a.selectBookmarkInLog(bookmarkName)
+}
+
+// exitBookmarkSetMode returns to normal state
+func (a *App) exitBookmarkSetMode() {
+	a.bookmarkSetMode = false
+	a.bookmarkSetName = ""
+
+	// Restore log panel title
+	a.logPanel.SetTitle("0 Log")
+
+	// Return focus to bookmarks panel with preserved cursor
+	a.setFocus(2)
+	a.bookmarksPanel.SetEntered(true)
+	a.bookmarksPanel.SetCursor(a.bookmarkSetCursor)
+}
+
+// selectBookmarkInLog tries to select the revision where the bookmark currently points
+func (a *App) selectBookmarkInLog(bookmarkName string) {
+	// Get revisions from jj-lib which include bookmarks
+	revisions, err := a.repo.Log()
+	if err != nil {
+		return
+	}
+
+	// Find the revision with this bookmark and get its change ID
+	for _, rev := range revisions {
+		for _, bm := range rev.Bookmarks {
+			if bm == bookmarkName {
+				// Found the revision with this bookmark, select it in log panel
+				// Note: ChangeID from jj.Revision is the full ID, but logPanel uses short IDs
+				// The SelectByChangeID method should handle prefix matching
+				a.logPanel.SelectByChangeID(rev.ChangeID[:8]) // Use short form
+				return
+			}
+		}
+	}
+}
+
+// executeBookmarkSet attempts to set the bookmark to the selected revision
+func (a *App) executeBookmarkSet(commitID string) {
+	err := a.repo.SetBookmark(a.bookmarkSetName, commitID, false, false)
+	if err != nil {
+		errMsg := err.Error()
+		// Check for immutable error
+		if strings.Contains(errMsg, "immutable") {
+			a.showConfirmDialog("Set on Immutable", "Set bookmark on immutable revision?", "immutable")
+			return
+		}
+		// Check for backwards error
+		if strings.Contains(errMsg, "backwards") {
+			a.showConfirmDialog("Move Backwards", "Move bookmark backwards in history?", "backwards")
+			return
+		}
+		// Other error - show error to user
+		a.showInfoDialog("Error", errMsg)
+		a.exitBookmarkSetMode()
+		return
+	}
+
+	// Success - exit set mode and refresh
+	a.exitBookmarkSetMode()
+	a.logPanel.Refresh()
+	a.workspacePanel.Refresh()
+	a.bookmarksPanel.Refresh()
+}
+
+// showConfirmDialog displays a confirmation dialog
+func (a *App) showConfirmDialog(title, message, action string) {
+	a.confirmOverlay = floating.NewConfirmOverlay(title, message)
+	a.confirmOverlay.SetSize(a.width, a.height-1)
+	a.showConfirm = true
+	a.confirmAction = action
+}
+
+// handleConfirmAction processes confirmed action
+func (a *App) handleConfirmAction() {
+	if a.bookmarkSetName == "" {
+		return
+	}
+
+	change := a.logPanel.SelectedChange()
+	if change == nil {
+		return
+	}
+
+	allowBackwards := a.confirmAction == "backwards"
+	ignoreImmutable := a.confirmAction == "immutable"
+
+	err := a.repo.SetBookmark(a.bookmarkSetName, change.CommitID, allowBackwards, ignoreImmutable)
+	if err != nil {
+		// Failed even with flag - exit set mode
+		a.exitBookmarkSetMode()
+		return
+	}
+
+	// Success
+	a.exitBookmarkSetMode()
+	a.logPanel.Refresh()
+	a.workspacePanel.Refresh()
+	a.bookmarksPanel.Refresh()
+}
+
+// overlayConfirm renders the confirm dialog overlay
+func (a *App) overlayConfirm(background string) string {
+	confirmView := a.confirmOverlay.View()
+
+	bgLines := strings.Split(background, "\n")
+	confirmLines := strings.Split(confirmView, "\n")
+
+	for i, confirmLine := range confirmLines {
+		if i >= 0 && i < len(bgLines) {
+			bgLines[i] = confirmLine
+		}
+	}
+
+	return strings.Join(bgLines, "\n")
+}
+
+// showInfoDialog displays an informational/error message
+func (a *App) showInfoDialog(title, message string) {
+	a.infoOverlay = floating.NewInfoOverlay(title, message)
+	a.infoOverlay.SetSize(a.width, a.height-1)
+	a.showInfo = true
+}
+
+// overlayInfo renders the info dialog overlay
+func (a *App) overlayInfo(background string) string {
+	infoView := a.infoOverlay.View()
+
+	bgLines := strings.Split(background, "\n")
+	infoLines := strings.Split(infoView, "\n")
+
+	for i, infoLine := range infoLines {
+		if i >= 0 && i < len(bgLines) {
+			bgLines[i] = infoLine
+		}
+	}
+
+	return strings.Join(bgLines, "\n")
 }

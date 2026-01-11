@@ -37,6 +37,11 @@ func NewLogPanel(repoPath string) *LogPanel {
 	return l
 }
 
+// SetTitle changes the panel title
+func (l *LogPanel) SetTitle(title string) {
+	l.title = title
+}
+
 func (l *LogPanel) loadLog() {
 	output, err := jj.LogCLI(l.repoPath)
 	if err != nil {
@@ -73,6 +78,31 @@ func (l *LogPanel) SelectedChange() *jj.ChangeInfo {
 		return nil
 	}
 	return &l.logOutput.Changes[l.selectedIndex]
+}
+
+// GetChanges returns all changes in the log
+func (l *LogPanel) GetChanges() []jj.ChangeInfo {
+	if l.logOutput == nil {
+		return nil
+	}
+	return l.logOutput.Changes
+}
+
+// SelectByChangeID selects the change with the given change ID
+func (l *LogPanel) SelectByChangeID(changeID string) {
+	if l.logOutput == nil {
+		return
+	}
+	for i, change := range l.logOutput.Changes {
+		if change.ChangeID == changeID {
+			l.selectedIndex = i
+			l.ensureSelectedVisible()
+			if l.ready {
+				l.viewport.SetContent(l.renderLog())
+			}
+			return
+		}
+	}
 }
 
 func (l *LogPanel) Init() tea.Cmd {

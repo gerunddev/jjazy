@@ -61,4 +61,15 @@ void jj_free_result(JjResult result);
 // Free a string allocated by Rust
 void jj_free_string(char* s);
 
+// Set a bookmark to point to a specific revision
+// Parameters:
+// - handle: repository handle
+// - name: bookmark name
+// - revision_id: target revision ID prefix
+// - allow_backwards: if true, allow moving bookmark backwards in history
+// - ignore_immutable: if true, allow setting bookmark on immutable revisions
+// Returns JjResult with empty success or error message
+JjResult jj_set_bookmark(RepoHandle* handle, const char* name, const char* revision_id,
+                         int allow_backwards, int ignore_immutable);
+
 #endif // JJ_BRIDGE_H

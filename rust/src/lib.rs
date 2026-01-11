@@ -1121,3 +1121,224 @@ pub extern "C" fn jj_free_string(s: *mut c_char) {
         }
     }
 }
+
+/// Set a bookmark to point to a specific revision
+/// Parameters:
+/// - handle: repository handle
+/// - name: bookmark name (C string)
+/// - revision_id: target revision ID prefix (C string)
+/// - allow_backwards: if true, allow moving bookmark backwards in history
+/// - ignore_immutable: if true, allow setting bookmark on immutable revisions
+/// Returns JjResult with empty success or error message
+#[no_mangle]
+pub extern "C" fn jj_set_bookmark(
+    handle: *mut RepoHandle,
+    name: *const c_char,
+    revision_id: *const c_char,
+    allow_backwards: bool,
+    ignore_immutable: bool,
+) -> JjResult {
+    use std::collections::HashSet;
+    use jj_lib::op_store::RefTarget;
+    use jj_lib::ref_name::RefNameBuf;
+
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &mut *handle
+    };
+
+    let bookmark_name = unsafe {
+        if name.is_null() {
+            return JjResult::error("null bookmark name".to_string());
+        }
+        match CStr::from_ptr(name).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid bookmark name UTF-8: {}", e)),
+        }
+    };
+
+    // Convert bookmark name to RefNameBuf
+    let ref_name = RefNameBuf::from(bookmark_name.to_string());
+
+    let revision_str = unsafe {
+        if revision_id.is_null() {
+            return JjResult::error("null revision_id".to_string());
+        }
+        match CStr::from_ptr(revision_id).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid revision_id UTF-8: {}", e)),
+        }
+    };
+
+    // Find the target commit by ID prefix
+    let target_commit = {
+        let mut found: Option<Commit> = None;
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut to_visit: Vec<jj_lib::backend::CommitId> = Vec::new();
+
+        // Start from all working copy commits
+        for (_ws_id, commit_id) in handle.repo.view().wc_commit_ids() {
+            to_visit.push(commit_id.clone());
+        }
+
+        while let Some(commit_id) = to_visit.pop() {
+            let hex = commit_id.hex();
+            if visited.contains(&hex) {
+                continue;
+            }
+            visited.insert(hex.clone());
+
+            if hex.starts_with(revision_str) {
+                match handle.repo.store().get_commit(&commit_id) {
+                    Ok(c) => {
+                        found = Some(c);
+                        break;
+                    }
+                    Err(_) => continue,
+                }
+            }
+
+            // Add parents to visit
+            if let Ok(c) = handle.repo.store().get_commit(&commit_id) {
+                for parent_id in c.parent_ids() {
+                    if !visited.contains(&parent_id.hex()) {
+                        to_visit.push(parent_id.clone());
+                    }
+                }
+            }
+        }
+
+        match found {
+            Some(c) => c,
+            None => return JjResult::error(format!("Revision not found: {}", revision_str)),
+        }
+    };
+
+    // Check if target is immutable
+    // Immutable commits are those that are ancestors of:
+    // 1. Remote-tracked bookmarks (pushed commits)
+    // 2. The root commit
+    if !ignore_immutable {
+        let root_commit_id = handle.repo.store().root_commit_id();
+        if target_commit.id() == root_commit_id {
+            return JjResult::error("Cannot set bookmark on immutable revision (root commit)".to_string());
+        }
+
+        // Check if commit is an ancestor of any remote-tracked bookmark
+        // This covers the common case: commits that have been pushed are immutable
+        let mut remote_heads: Vec<jj_lib::backend::CommitId> = Vec::new();
+
+        // Collect all remote bookmark targets
+        for (_, remote_ref) in handle.repo.view().all_remote_bookmarks() {
+            for id in remote_ref.target.added_ids() {
+                remote_heads.push(id.clone());
+            }
+        }
+
+        // Check if target_commit is an ancestor of any remote head
+        // by walking down from remote heads to see if we reach target
+        if !remote_heads.is_empty() {
+            let mut is_immutable = false;
+            let mut to_check: Vec<jj_lib::backend::CommitId> = remote_heads;
+            let mut checked: HashSet<String> = HashSet::new();
+            let max_depth = 200;
+
+            for _ in 0..max_depth {
+                if to_check.is_empty() {
+                    break;
+                }
+
+                let commit_id = to_check.pop().unwrap();
+                let hex = commit_id.hex();
+                if checked.contains(&hex) {
+                    continue;
+                }
+                checked.insert(hex);
+
+                if &commit_id == target_commit.id() {
+                    // Target is an ancestor of remote bookmark - it's immutable
+                    is_immutable = true;
+                    break;
+                }
+
+                // Add parents to check
+                if let Ok(c) = handle.repo.store().get_commit(&commit_id) {
+                    for parent_id in c.parent_ids() {
+                        to_check.push(parent_id.clone());
+                    }
+                }
+            }
+
+            if is_immutable {
+                return JjResult::error("Cannot set bookmark on immutable revision (already pushed)".to_string());
+            }
+        }
+    }
+
+    // Check if moving backwards
+    if !allow_backwards {
+        // Get current bookmark target
+        let current_target = handle.repo.view().get_local_bookmark(&ref_name);
+        if let Some(ref_target) = current_target.as_normal() {
+            // Check if new target is an ancestor of current target
+            if let Ok(current_commit) = handle.repo.store().get_commit(ref_target) {
+                // Simple ancestor check: walk from current to see if we reach target
+                let mut is_backwards = false;
+                let mut ancestors_to_check: Vec<jj_lib::backend::CommitId> = vec![current_commit.id().clone()];
+                let mut checked: HashSet<String> = HashSet::new();
+                let max_depth = 100; // Limit search depth
+
+                for _ in 0..max_depth {
+                    if ancestors_to_check.is_empty() {
+                        break;
+                    }
+
+                    let commit_id = ancestors_to_check.pop().unwrap();
+                    let hex = commit_id.hex();
+                    if checked.contains(&hex) {
+                        continue;
+                    }
+                    checked.insert(hex);
+
+                    if &commit_id == target_commit.id() {
+                        // Target is an ancestor of current - this is backwards
+                        is_backwards = true;
+                        break;
+                    }
+
+                    if let Ok(c) = handle.repo.store().get_commit(&commit_id) {
+                        for parent_id in c.parent_ids() {
+                            ancestors_to_check.push(parent_id.clone());
+                        }
+                    }
+                }
+
+                if is_backwards {
+                    return JjResult::error("Cannot move bookmark backwards (use allow_backwards flag)".to_string());
+                }
+            }
+        }
+    }
+
+    // Start a transaction
+    let mut tx = handle.repo.start_transaction();
+
+    // Set the bookmark
+    tx.repo_mut().set_local_bookmark_target(
+        &ref_name,
+        RefTarget::normal(target_commit.id().clone()),
+    );
+
+    // Commit the transaction
+    let description = format!("set bookmark {} to {}", bookmark_name, revision_str);
+    match tx.commit(&description) {
+        Ok(new_repo) => {
+            // Update handle to point to new repo
+            handle.repo = new_repo;
+            JjResult::success("".to_string())
+        }
+        Err(e) => JjResult::error(format!("Failed to commit transaction: {}", e)),
+    }
+}

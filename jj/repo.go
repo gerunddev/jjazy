@@ -119,6 +119,13 @@ func (r *Repo) RevisionDiff(revisionID string) (string, error) {
 	return ffi.GetRevisionDiff(r.ptr, revisionID)
 }
 
+// SetBookmark sets a bookmark to point to a specific revision.
+// If allowBackwards is true, the bookmark can be moved to an ancestor.
+// If ignoreImmutable is true, the bookmark can be set on immutable revisions.
+func (r *Repo) SetBookmark(name, revisionID string, allowBackwards, ignoreImmutable bool) error {
+	return ffi.SetBookmark(r.ptr, name, revisionID, allowBackwards, ignoreImmutable)
+}
+
 // Close closes the repository and frees associated resources.
 func (r *Repo) Close() {
 	if r.ptr != nil {
