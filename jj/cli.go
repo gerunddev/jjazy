@@ -18,9 +18,11 @@ type LogOutput struct {
 type ChangeInfo struct {
 	ChangeID      string
 	CommitID      string
-	StartLine     int  // First line in RawANSI (0-indexed)
-	EndLine       int  // Last line (exclusive)
-	IsWorkingCopy bool // True if this is the current working copy (@)
+	Description   string   // First line of description (empty if none)
+	Bookmarks     []string // Bookmarks pointing to this change
+	StartLine     int      // First line in RawANSI (0-indexed)
+	EndLine       int      // Last line (exclusive)
+	IsWorkingCopy bool     // True if this is the current working copy (@)
 }
 
 // LogCLI fetches the log using the jj CLI and returns structured output.
@@ -37,9 +39,9 @@ func LogCLI(repoPath string) (*LogOutput, error) {
 	}
 	rawANSI := string(prettyOutput)
 
-	// Pass 2: Get structured metadata (including working copy detection)
+	// Pass 2: Get structured metadata (including working copy detection, description, bookmarks)
 	structuredCmd := exec.Command("jj", "log", "--no-graph", "-T",
-		`"[" ++ change_id.short(8) ++ "|" ++ commit_id.short(8) ++ "|" ++ if(self.current_working_copy(), "wc", "no") ++ "]\n"`)
+		`change_id.short(8) ++ "<<SEP>>" ++ commit_id.short(8) ++ "<<SEP>>" ++ if(self.current_working_copy(), "wc", "no") ++ "<<SEP>>" ++ if(description, description.first_line(), "") ++ "<<SEP>>" ++ bookmarks.join(",") ++ "\n"`)
 	structuredCmd.Dir = repoPath
 	structuredOutput, err := structuredCmd.Output()
 	if err != nil {
@@ -92,20 +94,32 @@ func LogCLI(repoPath string) (*LogOutput, error) {
 }
 
 // parseStructuredLog parses the structured template output into ChangeInfo slices.
+// Format: changeID<<SEP>>commitID<<SEP>>wc/no<<SEP>>description<<SEP>>bookmarks
 func parseStructuredLog(output string) []ChangeInfo {
 	var changes []ChangeInfo
-	// Match [changeID|commitID|wc/no]
-	re := regexp.MustCompile(`\[([a-z]+)\|([a-f0-9]+)\|(wc|no)\]`)
+	const sep = "<<SEP>>"
 
 	for _, line := range strings.Split(output, "\n") {
-		matches := re.FindStringSubmatch(line)
-		if len(matches) == 4 {
-			changes = append(changes, ChangeInfo{
-				ChangeID:      matches[1],
-				CommitID:      matches[2],
-				IsWorkingCopy: matches[3] == "wc",
-			})
+		if line == "" {
+			continue
 		}
+		parts := strings.Split(line, sep)
+		if len(parts) < 5 {
+			continue
+		}
+
+		var bookmarks []string
+		if parts[4] != "" {
+			bookmarks = strings.Split(parts[4], ",")
+		}
+
+		changes = append(changes, ChangeInfo{
+			ChangeID:      parts[0],
+			CommitID:      parts[1],
+			IsWorkingCopy: parts[2] == "wc",
+			Description:   parts[3],
+			Bookmarks:     bookmarks,
+		})
 	}
 
 	return changes
@@ -259,6 +273,30 @@ func Squash(repoPath, changeID string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("squash failed: %s", string(output))
+	}
+	return nil
+}
+
+// Rebase moves a revision to a new parent
+// jj rebase -r <source> -d <destination>
+func Rebase(repoPath, sourceRev, destRev string) error {
+	cmd := exec.Command("jj", "rebase", "-r", sourceRev, "-d", destRev)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("rebase failed: %s", string(output))
+	}
+	return nil
+}
+
+// RebaseBranch rebases a revision and its descendants
+// jj rebase -b <branch> -d <destination>
+func RebaseBranch(repoPath, branchRev, destRev string) error {
+	cmd := exec.Command("jj", "rebase", "-b", branchRev, "-d", destRev)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("rebase failed: %s", string(output))
 	}
 	return nil
 }
