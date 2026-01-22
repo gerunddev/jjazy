@@ -3,7 +3,7 @@ package interactive
 import (
 	"testing"
 
-	"github.com/gerund/jjazy/jj"
+	"github.com/gerunddev/jjazy/jj"
 )
 
 func TestBuildRevisionOptions(t *testing.T) {

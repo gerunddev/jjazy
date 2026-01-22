@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/gerund/jjazy/jj"
+	"github.com/gerunddev/jjazy/jj"
 )
 
 // Navigation handles bookmark/revision navigation logic.

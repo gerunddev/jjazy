@@ -2,7 +2,7 @@ package panels
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerund/jjazy/ui/borders"
+	"github.com/gerunddev/jjazy/ui/borders"
 )
 
 // Panel defines the interface for all sidebar panels

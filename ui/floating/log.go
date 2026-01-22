@@ -7,13 +7,13 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jjazy/jj"
-	"github.com/gerund/jjazy/ui/borders"
-	"github.com/gerund/jjazy/ui/fixtures"
-	"github.com/gerund/jjazy/ui/graph"
-	"github.com/gerund/jjazy/ui/messages"
-	"github.com/gerund/jjazy/ui/prefix"
-	"github.com/gerund/jjazy/ui/theme"
+	"github.com/gerunddev/jjazy/jj"
+	"github.com/gerunddev/jjazy/ui/borders"
+	"github.com/gerunddev/jjazy/ui/fixtures"
+	"github.com/gerunddev/jjazy/ui/graph"
+	"github.com/gerunddev/jjazy/ui/messages"
+	"github.com/gerunddev/jjazy/ui/prefix"
+	"github.com/gerunddev/jjazy/ui/theme"
 )
 
 // LogOverlay is a floating window showing the revision graph

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/gerund/jjazy/jj"
+	"github.com/gerunddev/jjazy/jj"
 )
 
 func runEdit(repoPath string) error {

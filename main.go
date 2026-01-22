@@ -6,9 +6,9 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerund/jjazy/interactive"
-	"github.com/gerund/jjazy/jj"
-	"github.com/gerund/jjazy/ui"
+	"github.com/gerunddev/jjazy/interactive"
+	"github.com/gerunddev/jjazy/jj"
+	"github.com/gerunddev/jjazy/ui"
 )
 
 func main() {

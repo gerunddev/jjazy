@@ -1,4 +1,4 @@
-module github.com/gerund/jjazy
+module github.com/gerunddev/jjazy
 
 go 1.23.0
 

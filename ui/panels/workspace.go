@@ -5,9 +5,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerund/jjazy/jj"
-	"github.com/gerund/jjazy/ui/borders"
-	"github.com/gerund/jjazy/ui/theme"
+	"github.com/gerunddev/jjazy/jj"
+	"github.com/gerunddev/jjazy/ui/borders"
+	"github.com/gerunddev/jjazy/ui/theme"
 )
 
 // WorkspacePanel shows workspaces in the repository.

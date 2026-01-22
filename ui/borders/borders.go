@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jjazy/ui/theme"
+	"github.com/gerunddev/jjazy/ui/theme"
 )
 
 // Rounded border characters

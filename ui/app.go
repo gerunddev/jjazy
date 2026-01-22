@@ -8,11 +8,11 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jjazy/app"
-	"github.com/gerund/jjazy/jj"
-	"github.com/gerund/jjazy/ui/floating"
-	"github.com/gerund/jjazy/ui/messages"
-	"github.com/gerund/jjazy/ui/panels"
+	"github.com/gerunddev/jjazy/app"
+	"github.com/gerunddev/jjazy/jj"
+	"github.com/gerunddev/jjazy/ui/floating"
+	"github.com/gerunddev/jjazy/ui/messages"
+	"github.com/gerunddev/jjazy/ui/panels"
 )
 
 // Experience represents the current view mode of the application

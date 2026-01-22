@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerund/jjazy/ui/borders"
-	"github.com/gerund/jjazy/ui/theme"
+	"github.com/gerunddev/jjazy/ui/borders"
+	"github.com/gerunddev/jjazy/ui/theme"
 )
 
 // ConfirmOverlay is a floating Yes/No confirmation dialog
