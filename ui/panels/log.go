@@ -88,6 +88,29 @@ func (l *LogPanel) GetChanges() []jj.ChangeInfo {
 	return l.logOutput.Changes
 }
 
+// Cursor returns the current selected index in the log
+func (l *LogPanel) Cursor() int {
+	return l.selectedIndex
+}
+
+// SetCursor sets the selected index in the log
+func (l *LogPanel) SetCursor(index int) {
+	if l.logOutput == nil || len(l.logOutput.Changes) == 0 {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(l.logOutput.Changes) {
+		index = len(l.logOutput.Changes) - 1
+	}
+	l.selectedIndex = index
+	l.ensureSelectedVisible()
+	if l.ready {
+		l.viewport.SetContent(l.renderLog())
+	}
+}
+
 // SelectByChangeID selects the change with the given change ID
 func (l *LogPanel) SelectByChangeID(changeID string) {
 	if l.logOutput == nil {
@@ -117,9 +140,9 @@ func (l *LogPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle scroll wheel
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			l.viewport.LineUp(3)
+			l.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			l.viewport.LineDown(3)
+			l.viewport.ScrollDown(3)
 		}
 
 	case tea.KeyMsg:
@@ -133,9 +156,9 @@ func (l *LogPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "ctrl+n":
 				l.selectNext()
 			case "alt+v": // Page up
-				l.viewport.HalfViewUp()
+				l.viewport.HalfPageUp()
 			case "ctrl+v": // Page down
-				l.viewport.HalfViewDown()
+				l.viewport.HalfPageDown()
 			case "alt+<", "home": // Beginning of buffer
 				l.selectedIndex = 0
 				l.ensureSelectedVisible()

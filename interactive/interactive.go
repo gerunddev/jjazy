@@ -13,6 +13,7 @@ func Run(repoPath string) error {
 		Options(
 			huh.NewOption("Edit - Switch working copy to revision", "edit"),
 			huh.NewOption("Rebase - Move revision to new parent", "rebase"),
+			huh.NewOption("Squash Range - Combine commits into destination", "squash-range"),
 		).
 		Value(&action).
 		Run()
@@ -26,6 +27,8 @@ func Run(repoPath string) error {
 		return runEdit(repoPath)
 	case "rebase":
 		return runRebase(repoPath)
+	case "squash-range":
+		return runSquashRange(repoPath)
 	}
 
 	return nil

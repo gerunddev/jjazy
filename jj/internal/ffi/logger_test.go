@@ -66,8 +66,8 @@ func TestInitLogger_OnlyOnce(t *testing.T) {
 	tmpFile1 := filepath.Join(t.TempDir(), "test1.log")
 	tmpFile2 := filepath.Join(t.TempDir(), "test2.log")
 
-	InitLogger(tmpFile1, log.InfoLevel)
-	InitLogger(tmpFile2, log.InfoLevel) // Should be ignored
+	_ = InitLogger(tmpFile1, log.InfoLevel)
+	_ = InitLogger(tmpFile2, log.InfoLevel) // Should be ignored
 
 	// Write a log
 	done := logOp("Test")

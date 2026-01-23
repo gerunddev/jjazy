@@ -14,6 +14,7 @@ type HelpBarContext struct {
 	Entered         bool // True if current panel is in "entered" mode
 	IsWorkingCopy   bool // True when viewing @ change
 	BookmarkSetMode bool // True when in bookmark set flow
+	SquashMode      bool // True when in squash mode flow
 }
 
 // HelpHint represents a single hint (key + description)
@@ -36,6 +37,12 @@ func getActionHints(ctx HelpBarContext) []HelpHint {
 			if ctx.BookmarkSetMode {
 				return []HelpHint{
 					{Key: "↵", Desc: "set"},
+				}
+			}
+			if ctx.SquashMode {
+				return []HelpHint{
+					{Key: "↵", Desc: "squash"},
+					{Key: "s", Desc: "squash"},
 				}
 			}
 			return []HelpHint{
@@ -86,6 +93,12 @@ func getNavigationHints(ctx HelpBarContext) []HelpHint {
 		switch ctx.FocusedPanel {
 		case 0: // Log panel
 			if ctx.BookmarkSetMode {
+				return []HelpHint{
+					{Key: "←", Desc: "cancel"},
+					{Key: "↑↓", Desc: "select"},
+				}
+			}
+			if ctx.SquashMode {
 				return []HelpHint{
 					{Key: "←", Desc: "cancel"},
 					{Key: "↑↓", Desc: "select"},

@@ -11,10 +11,21 @@ import (
 	"github.com/gerunddev/jjazy/ui"
 )
 
+// Version is set by ldflags during build
+var Version = "dev"
+
 func main() {
 	// Parse flags
 	interactiveMode := flag.Bool("i", false, "Run in interactive mode (quick actions)")
+	showVersion := flag.Bool("version", false, "Print version and exit")
+	showVersionShort := flag.Bool("v", false, "Print version and exit (shorthand)")
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion || *showVersionShort {
+		fmt.Printf("jjazy version %s\n", Version)
+		os.Exit(0)
+	}
 
 	// Open the repository in the current directory
 	repo, err := jj.Open(".")

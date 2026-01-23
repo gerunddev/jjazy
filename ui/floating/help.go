@@ -41,21 +41,21 @@ func (h *HelpOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle scroll wheel for viewport
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			h.viewport.LineUp(3)
+			h.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			h.viewport.LineDown(3)
+			h.viewport.ScrollDown(3)
 		}
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
-			h.viewport.LineUp(1)
+			h.viewport.ScrollUp(1)
 		case "down", "j":
-			h.viewport.LineDown(1)
+			h.viewport.ScrollDown(1)
 		case "pgup", "ctrl+u":
-			h.viewport.HalfViewUp()
+			h.viewport.HalfPageUp()
 		case "pgdown", "ctrl+d":
-			h.viewport.HalfViewDown()
+			h.viewport.HalfPageDown()
 		case "g", "home":
 			h.viewport.GotoTop()
 		case "G", "end":

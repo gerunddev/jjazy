@@ -70,6 +70,13 @@ type App struct {
 	bookmarkSetName   string // Name of bookmark being set
 	bookmarkSetCursor int    // Preserved cursor position in bookmarks panel
 
+	// Squash mode state
+	squashMode          bool   // True when in squash mode (selecting second commit)
+	squashFirstChangeID string // Change ID of first selected commit
+	squashFirstCursor   int    // Cursor position when squash mode started
+	squashLower         string // Lower (ancestor) change ID in range
+	squashHigher        string // Higher (descendant) change ID in range
+
 	// State
 	focusedPanel int // Experience-relative: 0=main, 1=sidebar1, 2=sidebar2
 	keys         KeyMap
@@ -196,9 +203,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "describe":
 					if change := a.logPanel.SelectedChange(); change != nil {
 						_ = jj.Describe(a.repoPath, change.ChangeID, value)
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						a.refreshAllPanels()
 					}
 				case "workspace_add":
 					if value != "" {
@@ -208,6 +213,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							a.workspacePanel.Refresh()
 						}
 					}
+				case "squash_range":
+					a.executeSquashRange(value)
 				}
 				a.textInputAction = ""
 				return a, nil
@@ -252,6 +259,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.exitBookmarkSetMode()
 				return a, nil
 			}
+			// Check if we're in squash mode
+			if a.squashMode {
+				a.exitSquashMode()
+				return a, nil
+			}
 			// Check if we need to exit cursor mode in browsable panels
 			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
 				a.workspacePanel.SetEntered(false)
@@ -272,6 +284,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// First check if we're in bookmark set mode and on log panel
 			if a.bookmarkSetMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
 				a.exitBookmarkSetMode()
+				return a, nil
+			}
+			// Check if we're in squash mode and on log panel
+			if a.squashMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+				a.exitSquashMode()
 				return a, nil
 			}
 			// Check if we need to exit entered mode
@@ -343,12 +360,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						return a, nil
 					}
+					if a.squashMode {
+						// Confirm second selection in squash mode
+						if change := a.logPanel.SelectedChange(); change != nil {
+							a.handleSquashSecondSelection(change.ChangeID)
+						}
+						return a, nil
+					}
 					// Normal: jj edit
 					if change := a.logPanel.SelectedChange(); change != nil {
 						_ = jj.Edit(a.repoPath, change.ChangeID)
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						a.refreshAllPanels()
 					}
 					return a, nil
 				case 1: // Workspace panel
@@ -442,9 +464,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Create new change after selected
 				if change := a.logPanel.SelectedChange(); change != nil {
 					_ = jj.NewChange(a.repoPath, change.ChangeID)
-					a.logPanel.Refresh()
-					a.workspacePanel.Refresh()
-					a.bookmarksPanel.Refresh()
+					a.refreshAllPanels()
 				}
 				return a, nil
 
@@ -470,19 +490,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Abandon change
 				if change := a.logPanel.SelectedChange(); change != nil {
 					_ = jj.Abandon(a.repoPath, change.ChangeID)
-					a.logPanel.Refresh()
-					a.workspacePanel.Refresh()
-					a.bookmarksPanel.Refresh()
+					a.refreshAllPanels()
 				}
 				return a, nil
 
 			case key.Matches(msg, a.keys.SquashChange):
-				// Squash change into parent
 				if change := a.logPanel.SelectedChange(); change != nil {
-					_ = jj.Squash(a.repoPath, change.ChangeID)
-					a.logPanel.Refresh()
-					a.workspacePanel.Refresh()
-					a.bookmarksPanel.Refresh()
+					if a.squashMode {
+						// Second 's' press - confirm squash selection (same as Enter)
+						a.handleSquashSecondSelection(change.ChangeID)
+					} else {
+						// First 's' press - enter squash mode
+						a.enterSquashMode(change.ChangeID)
+					}
 				}
 				return a, nil
 			}
@@ -501,9 +521,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					a.bookmarksPanel.SetEntered(false)
 					a.setFocus(0) // Return to log view
-					a.logPanel.Refresh()
-					a.workspacePanel.Refresh()
-					a.bookmarksPanel.Refresh()
+					a.refreshAllPanels()
 				}
 				return a, nil
 			}
@@ -558,9 +576,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// If no files remain, exit to log (consistent with squash)
 					if a.filesPanel.Count() == 0 {
 						a.exitChangeExperience()
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						a.refreshAllPanels()
 					} else {
 						// Update diff view for remaining files
 						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
@@ -581,9 +597,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// If no files remain, exit to log
 					if a.filesPanel.Count() == 0 {
 						a.exitChangeExperience()
-						a.logPanel.Refresh()
-						a.workspacePanel.Refresh()
-						a.bookmarksPanel.Refresh()
+						a.refreshAllPanels()
 					} else {
 						// Update diff view for remaining files
 						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
@@ -927,6 +941,7 @@ func (a *App) renderHelpBar() string {
 		Entered:         false,
 		IsWorkingCopy:   a.selectedChangeIsWorking,
 		BookmarkSetMode: a.bookmarkSetMode,
+		SquashMode:      a.squashMode,
 	}
 
 	// Determine entered state based on focused panel
@@ -1093,6 +1108,79 @@ func (a *App) exitBookmarkSetMode() {
 	a.bookmarksPanel.SetCursor(a.bookmarkSetCursor)
 }
 
+// enterSquashMode starts the squash mode flow for range squashing
+func (a *App) enterSquashMode(changeID string) {
+	a.squashMode = true
+	a.squashFirstChangeID = changeID
+	a.squashFirstCursor = a.logPanel.Cursor()
+
+	// Update log panel title to indicate squash mode
+	a.logPanel.SetTitle("0 Squash")
+}
+
+// exitSquashMode resets all squash state and restores normal mode
+func (a *App) exitSquashMode() {
+	a.squashMode = false
+	a.squashFirstChangeID = ""
+	a.squashFirstCursor = 0
+	a.squashLower = ""
+	a.squashHigher = ""
+
+	// Restore log panel title
+	a.logPanel.SetTitle("0 Log")
+}
+
+// handleSquashSecondSelection processes the second commit selection in squash mode
+func (a *App) handleSquashSecondSelection(secondChangeID string) {
+	firstChangeID := a.squashFirstChangeID
+
+	// Same commit = simple squash to parent (existing behavior)
+	if firstChangeID == secondChangeID {
+		err := jj.Squash(a.repoPath, firstChangeID)
+		if err != nil {
+			a.showInfoDialog("Error", err.Error())
+		}
+		a.exitSquashMode()
+		a.refreshAllPanels()
+		return
+	}
+
+	// Get revisions for ancestry check
+	revisions, err := a.repo.Log()
+	if err != nil {
+		a.showInfoDialog("Error", "Failed to get log: "+err.Error())
+		a.exitSquashMode()
+		return
+	}
+
+	nav := app.NewNavigation(a.repoPath, revisions)
+
+	// Determine order (lower=ancestor, higher=descendant)
+	lower, higher, err := nav.OrderByAncestry(firstChangeID, secondChangeID)
+	if err != nil {
+		a.showInfoDialog("Error", err.Error())
+		a.exitSquashMode()
+		return
+	}
+
+	// Get current description of destination (lower) for pre-fill
+	currentDesc, _ := jj.GetDescription(a.repoPath, lower)
+
+	// Store squash params for after description input
+	a.squashLower = lower
+	a.squashHigher = higher
+
+	// Show description input
+	a.textInputOverlay = floating.NewTextInputOverlay(
+		"Squash Description",
+		"Enter description for squashed commit...",
+		currentDesc,
+	)
+	a.textInputOverlay.SetSize(a.width, a.height-1)
+	a.showTextInput = true
+	a.textInputAction = "squash_range"
+}
+
 // selectBookmarkInLog tries to select the revision where the bookmark currently points
 func (a *App) selectBookmarkInLog(bookmarkName string) {
 	// Get revisions from jj-lib which include bookmarks
@@ -1138,9 +1226,7 @@ func (a *App) executeBookmarkSet(commitID string) {
 
 	// Success - exit set mode and refresh
 	a.exitBookmarkSetMode()
-	a.logPanel.Refresh()
-	a.workspacePanel.Refresh()
-	a.bookmarksPanel.Refresh()
+	a.refreshAllPanels()
 }
 
 // showConfirmDialog displays a confirmation dialog
@@ -1174,9 +1260,7 @@ func (a *App) handleConfirmAction() {
 
 	// Success
 	a.exitBookmarkSetMode()
-	a.logPanel.Refresh()
-	a.workspacePanel.Refresh()
-	a.bookmarksPanel.Refresh()
+	a.refreshAllPanels()
 }
 
 // overlayConfirm renders the confirm dialog overlay
@@ -1193,6 +1277,30 @@ func (a *App) overlayConfirm(background string) string {
 	}
 
 	return strings.Join(bgLines, "\n")
+}
+
+// executeSquashRange executes the squash range operation with the given description.
+// It calls BuildSquashRevset internally through SquashRange, shows error dialog on failure,
+// exits squash mode, and refreshes all panels.
+func (a *App) executeSquashRange(description string) {
+	if a.squashLower == "" || a.squashHigher == "" {
+		return
+	}
+
+	err := jj.SquashRange(a.repoPath, a.squashLower, a.squashHigher, description)
+	if err != nil {
+		a.showInfoDialog("Error", err.Error())
+	}
+	a.exitSquashMode()
+	a.refreshAllPanels()
+}
+
+// refreshAllPanels refreshes logPanel, workspacePanel, and bookmarksPanel
+// to reflect changes after operations like squash, edit, describe, etc.
+func (a *App) refreshAllPanels() {
+	a.logPanel.Refresh()
+	a.workspacePanel.Refresh()
+	a.bookmarksPanel.Refresh()
 }
 
 // showInfoDialog displays an informational/error message

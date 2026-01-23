@@ -97,22 +97,22 @@ func (d *DiffViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle scroll wheel for viewport
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			d.viewport.LineUp(3)
+			d.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			d.viewport.LineDown(3)
+			d.viewport.ScrollDown(3)
 		}
 
 	case tea.KeyMsg:
 		if d.focused {
 			switch msg.String() {
 			case "up", "k":
-				d.viewport.LineUp(1)
+				d.viewport.ScrollUp(1)
 			case "down", "j":
-				d.viewport.LineDown(1)
+				d.viewport.ScrollDown(1)
 			case "pgup", "ctrl+u":
-				d.viewport.HalfViewUp()
+				d.viewport.HalfPageUp()
 			case "pgdown", "ctrl+d":
-				d.viewport.HalfViewDown()
+				d.viewport.HalfPageDown()
 			case "g", "home":
 				d.viewport.GotoTop()
 			case "G", "end":

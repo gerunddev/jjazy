@@ -300,3 +300,51 @@ func RebaseBranch(repoPath, branchRev, destRev string) error {
 	}
 	return nil
 }
+
+// BuildSquashRevset creates a revset for selecting a range of commits
+// from lower (ancestor) to higher (descendant), excluding the lower commit itself.
+// The format is "lower::higher ~ lower" which selects all commits from lower to higher
+// (inclusive), then excludes lower since we don't want to squash the destination itself.
+func BuildSquashRevset(lower, higher string) string {
+	return fmt.Sprintf("%s::%s ~ %s", lower, higher, lower)
+}
+
+// SquashRange squashes a range of commits into a destination commit.
+// It uses BuildSquashRevset to create the revset for --from, and squashes
+// into the specified destination with the given message.
+// jj squash --from <revset> --into <dest> -m <message>
+func SquashRange(repoPath, lower, higher, message string) error {
+	revset := BuildSquashRevset(lower, higher)
+	cmd := exec.Command("jj", "squash", "--from", revset, "--into", lower, "-m", message)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("squash range failed: %s", string(output))
+	}
+	return nil
+}
+
+// IsAncestor checks if commit A is an ancestor of commit B using the jj CLI.
+// It uses the revset "A & ::B" - if A is an ancestor of B (or A equals B),
+// the intersection will return A. Otherwise, it returns nothing.
+// Returns true if A is an ancestor of (or equal to) B, false otherwise.
+func IsAncestor(repoPath, commitA, commitB string) (bool, error) {
+	// The revset "A & ::B" means "A intersected with ancestors of B (including B)"
+	// If A is an ancestor of B, this returns A. Otherwise, it returns nothing.
+	revset := fmt.Sprintf("%s & ::%s", commitA, commitB)
+	cmd := exec.Command("jj", "log", "-r", revset, "--no-graph", "-T", `change_id.short(8)`)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		// Check if this is just an empty result (no match) vs actual error
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// jj returns exit code 1 for empty revsets
+			if exitErr.ExitCode() == 1 {
+				return false, nil
+			}
+		}
+		return false, fmt.Errorf("failed to check ancestry: %w", err)
+	}
+	// If output is non-empty, A is an ancestor of B
+	return strings.TrimSpace(string(output)) != "", nil
+}

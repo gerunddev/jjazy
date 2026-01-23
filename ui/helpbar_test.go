@@ -136,6 +136,17 @@ func TestGetActionHintsExperienceLog(t *testing.T) {
 			expectedCount: 1, // set
 		},
 		{
+			name: "Log panel in squash mode",
+			ctx: HelpBarContext{
+				Experience:    ExperienceLog,
+				FocusedPanel:  0,
+				Entered:       false,
+				IsWorkingCopy: false,
+				SquashMode:    true,
+			},
+			expectedCount: 2, // squash (↵), squash (s)
+		},
+		{
 			name: "Workspace panel not entered",
 			ctx: HelpBarContext{
 				Experience:    ExperienceLog,
@@ -212,6 +223,17 @@ func TestGetNavigationHints(t *testing.T) {
 				Entered:         false,
 				IsWorkingCopy:   false,
 				BookmarkSetMode: true,
+			},
+			expectedCount: 2, // cancel, select
+		},
+		{
+			name: "Log panel in squash mode",
+			ctx: HelpBarContext{
+				Experience:    ExperienceLog,
+				FocusedPanel:  0,
+				Entered:       false,
+				IsWorkingCopy: false,
+				SquashMode:    true,
 			},
 			expectedCount: 2, // cancel, select
 		},
@@ -398,6 +420,43 @@ func TestRenderContextualHelpBar(t *testing.T) {
 				t.Error("Expected non-empty help bar")
 			}
 		})
+	}
+}
+
+// TestSquashModeHints verifies the specific hints shown in squash mode
+func TestSquashModeHints(t *testing.T) {
+	ctx := HelpBarContext{
+		Experience:    ExperienceLog,
+		FocusedPanel:  0,
+		Entered:       false,
+		IsWorkingCopy: false,
+		SquashMode:    true,
+	}
+
+	// Test action hints
+	actionHints := getActionHints(ctx)
+	if len(actionHints) != 2 {
+		t.Fatalf("Expected 2 action hints in squash mode, got %d", len(actionHints))
+	}
+
+	if actionHints[0].Key != "↵" || actionHints[0].Desc != "squash" {
+		t.Errorf("Expected first action hint '↵ squash', got '%s %s'", actionHints[0].Key, actionHints[0].Desc)
+	}
+	if actionHints[1].Key != "s" || actionHints[1].Desc != "squash" {
+		t.Errorf("Expected second action hint 's squash', got '%s %s'", actionHints[1].Key, actionHints[1].Desc)
+	}
+
+	// Test navigation hints
+	navHints := getNavigationHints(ctx)
+	if len(navHints) != 2 {
+		t.Fatalf("Expected 2 navigation hints in squash mode, got %d", len(navHints))
+	}
+
+	if navHints[0].Key != "←" || navHints[0].Desc != "cancel" {
+		t.Errorf("Expected first nav hint '← cancel', got '%s %s'", navHints[0].Key, navHints[0].Desc)
+	}
+	if navHints[1].Key != "↑↓" || navHints[1].Desc != "select" {
+		t.Errorf("Expected second nav hint '↑↓ select', got '%s %s'", navHints[1].Key, navHints[1].Desc)
 	}
 }
 

@@ -100,9 +100,9 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle scroll wheel for viewport
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			l.viewport.LineUp(3)
+			l.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			l.viewport.LineDown(3)
+			l.viewport.ScrollDown(3)
 		}
 
 	case tea.KeyMsg:
@@ -126,9 +126,9 @@ func (l *LogOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				l.viewport.GotoBottom()
 			}
 		case "pgup", "ctrl+u":
-			l.viewport.HalfViewUp()
+			l.viewport.HalfPageUp()
 		case "pgdown", "ctrl+d":
-			l.viewport.HalfViewDown()
+			l.viewport.HalfPageDown()
 		case "enter":
 			// Select revision and emit message
 			if rev := l.SelectedRevision(); rev != nil {

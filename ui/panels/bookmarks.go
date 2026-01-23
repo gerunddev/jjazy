@@ -98,9 +98,9 @@ func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case tea.MouseButtonWheelUp:
-			p.viewport.LineUp(3)
+			p.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			p.viewport.LineDown(3)
+			p.viewport.ScrollDown(3)
 		}
 
 	case tea.KeyMsg:
@@ -122,9 +122,9 @@ func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.CursorEnd(len(p.bookmarks))
 			p.viewport.GotoBottom()
 		case "ctrl+u", "pgup":
-			p.viewport.HalfViewUp()
+			p.viewport.HalfPageUp()
 		case "ctrl+d", "pgdown":
-			p.viewport.HalfViewDown()
+			p.viewport.HalfPageDown()
 		}
 	}
 
