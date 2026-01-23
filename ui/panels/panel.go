@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gerunddev/jjazy/ui/borders"
 )
@@ -125,5 +126,68 @@ func (b *BasePanel) CursorHome() {
 func (b *BasePanel) CursorEnd(itemCount int) {
 	if itemCount > 0 {
 		b.cursor = itemCount - 1
+	}
+}
+
+// HandleCursorKeys handles common cursor key navigation.
+// Returns true if the key was handled.
+func (b *BasePanel) HandleCursorKeys(msg tea.KeyMsg, itemCount int, vp *viewport.Model) bool {
+	switch msg.String() {
+	case "up", "k":
+		b.CursorUp(itemCount)
+		b.EnsureCursorVisible(vp)
+		return true
+	case "down", "j":
+		b.CursorDown(itemCount)
+		b.EnsureCursorVisible(vp)
+		return true
+	case "g", "home":
+		b.CursorHome()
+		vp.GotoTop()
+		return true
+	case "G", "end":
+		b.CursorEnd(itemCount)
+		vp.GotoBottom()
+		return true
+	case "ctrl+u", "pgup":
+		vp.HalfPageUp()
+		return true
+	case "ctrl+d", "pgdown":
+		vp.HalfPageDown()
+		return true
+	}
+	return false
+}
+
+// EnsureCursorVisible scrolls the viewport to keep the cursor in view.
+func (b *BasePanel) EnsureCursorVisible(vp *viewport.Model) {
+	if b.cursor < vp.YOffset {
+		vp.SetYOffset(b.cursor)
+	} else if b.cursor >= vp.YOffset+vp.Height {
+		vp.SetYOffset(b.cursor - vp.Height + 1)
+	}
+}
+
+// HandleMouseClick handles mouse click for item selection.
+// Returns true if an item was selected.
+func (b *BasePanel) HandleMouseClick(msg tea.MouseMsg, vp *viewport.Model, itemCount int) bool {
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		itemIndex := msg.Y - 1 + vp.YOffset
+		if itemIndex >= 0 && itemIndex < itemCount {
+			b.cursor = itemIndex
+			b.EnsureCursorVisible(vp)
+			return true
+		}
+	}
+	return false
+}
+
+// HandleMouseScroll handles scroll wheel events.
+func (b *BasePanel) HandleMouseScroll(msg tea.MouseMsg, vp *viewport.Model) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		vp.ScrollUp(3)
+	case tea.MouseButtonWheelDown:
+		vp.ScrollDown(3)
 	}
 }

@@ -88,16 +88,30 @@ struct RevisionInfo {
 
 impl JjResult {
     fn success(data: String) -> Self {
-        JjResult {
-            data: CString::new(data).unwrap().into_raw(),
-            error: ptr::null_mut(),
+        match CString::new(data) {
+            Ok(cs) => JjResult {
+                data: cs.into_raw(),
+                error: ptr::null_mut(),
+            },
+            Err(_) => JjResult::error("result contained null byte".to_string()),
         }
     }
 
     fn error(msg: String) -> Self {
-        JjResult {
-            data: ptr::null_mut(),
-            error: CString::new(msg).unwrap().into_raw(),
+        match CString::new(msg) {
+            Ok(cs) => JjResult {
+                data: ptr::null_mut(),
+                error: cs.into_raw(),
+            },
+            Err(_) => {
+                // Fallback: use a safe static error message
+                let fallback =
+                    CString::new("error message contained null byte").expect("static string");
+                JjResult {
+                    data: ptr::null_mut(),
+                    error: fallback.into_raw(),
+                }
+            }
         }
     }
 }
@@ -186,8 +200,12 @@ fn create_user_settings() -> Result<UserSettings, String> {
     UserSettings::from_config(config).map_err(|e| e.to_string())
 }
 
-/// Open a jj repository at the given path
-/// Returns NULL on error (check stderr)
+/// Open a jj repository at the given path.
+/// Returns NULL on error (check stderr).
+///
+/// # Safety
+///
+/// `path` must be a valid, null-terminated C string or NULL (returns NULL).
 #[no_mangle]
 pub extern "C" fn jj_open_repo(path: *const c_char) -> *mut RepoHandle {
     let path_str = unsafe {
@@ -241,8 +259,13 @@ pub extern "C" fn jj_open_repo(path: *const c_char) -> *mut RepoHandle {
     }
 }
 
-/// List branches in the repository
-/// Returns JjResult with JSON array of branch names on success
+/// List branches in the repository.
+/// Returns JjResult with JSON array of branch names on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_list_branches(handle: *mut RepoHandle) -> JjResult {
     let handle = unsafe {
@@ -268,8 +291,13 @@ pub extern "C" fn jj_list_branches(handle: *mut RepoHandle) -> JjResult {
     }
 }
 
-/// List workspaces in the repository
-/// Returns JjResult with JSON array of workspace info on success
+/// List workspaces in the repository.
+/// Returns JjResult with JSON array of workspace info on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_list_workspaces(handle: *mut RepoHandle) -> JjResult {
     let handle = unsafe {
@@ -391,12 +419,21 @@ fn resolve_revision_specs(handle: &RepoHandle, specs: &[String]) -> Result<Vec<j
     Ok(result)
 }
 
-/// Add a new workspace at the given path
-/// Creates directory if needed, initializes workspace with existing repo
+/// Add a new workspace at the given path.
+/// Creates directory if needed, initializes workspace with existing repo.
 /// If revision_ids is NULL or empty, the new workspace will be created as a sibling
 /// of the current workspace's working copy (sharing the same parent commits).
 /// If revision_ids is provided (comma-separated), those commits become the parents.
-/// Returns JjResult with empty success or error message
+/// Returns JjResult with empty success or error message.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `destination_path` must be a valid, null-terminated C string or NULL (returns error).
+/// - `workspace_name` may be NULL (name derived from path) or a valid, null-terminated C string.
+/// - `revision_ids` may be NULL or a valid, null-terminated C string (comma-separated).
+/// - The caller must not use the handle concurrently from multiple threads.
+///   This function mutates the repo handle.
 #[no_mangle]
 pub extern "C" fn jj_workspace_add(
     handle: *mut RepoHandle,
@@ -595,9 +632,16 @@ pub extern "C" fn jj_workspace_add(
     }
 }
 
-/// Forget a workspace by name
-/// Removes workspace tracking from repo (does not delete files on disk)
-/// Returns JjResult with empty success or error message
+/// Forget a workspace by name.
+/// Removes workspace tracking from repo (does not delete files on disk).
+/// Returns JjResult with empty success or error message.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `workspace_name` must be a valid, null-terminated C string or NULL (returns error).
+/// - The caller must not use the handle concurrently from multiple threads.
+///   This function mutates the repo handle.
 #[no_mangle]
 pub extern "C" fn jj_workspace_forget(
     handle: *mut RepoHandle,
@@ -658,8 +702,13 @@ pub extern "C" fn jj_workspace_forget(
     }
 }
 
-/// Get file changes in the current working copy
-/// Returns JjResult with JSON array of file change info on success
+/// Get file changes in the current working copy.
+/// Returns JjResult with JSON array of file change info on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_working_copy_changes(handle: *mut RepoHandle) -> JjResult {
     let handle = unsafe {
@@ -742,8 +791,13 @@ pub extern "C" fn jj_get_working_copy_changes(handle: *mut RepoHandle) -> JjResu
     }
 }
 
-/// List recent operations in the repository
-/// Returns JjResult with JSON array of operation info on success
+/// List recent operations in the repository.
+/// Returns JjResult with JSON array of operation info on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_list_operations(handle: *mut RepoHandle) -> JjResult {
     use jj_lib::operation::Operation;
@@ -803,8 +857,13 @@ pub extern "C" fn jj_list_operations(handle: *mut RepoHandle) -> JjResult {
     }
 }
 
-/// Get revision log for the repository
-/// Returns JjResult with JSON array of revision info on success
+/// Get revision log for the repository.
+/// Returns JjResult with JSON array of revision info on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_log(handle: *mut RepoHandle) -> JjResult {
     use std::collections::HashSet;
@@ -920,8 +979,13 @@ pub extern "C" fn jj_get_log(handle: *mut RepoHandle) -> JjResult {
     }
 }
 
-/// Get diff for the working copy (changes from parent)
-/// Returns JjResult with unified diff string on success
+/// Get diff for the working copy (changes from parent).
+/// Returns JjResult with unified diff string on success.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_diff(handle: *mut RepoHandle) -> JjResult {
     let handle = unsafe {
@@ -1097,8 +1161,14 @@ fn generate_unified_diff(before: &str, after: &str) -> String {
     result
 }
 
-/// Get diff for a specific file in the working copy
-/// Returns JjResult with unified diff string on success
+/// Get diff for a specific file in the working copy.
+/// Returns JjResult with unified diff string on success.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `path` must be a valid, null-terminated C string or NULL (returns error).
+/// - The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_file_diff(handle: *mut RepoHandle, path: *const c_char) -> JjResult {
     let handle = unsafe {
@@ -1216,8 +1286,14 @@ pub extern "C" fn jj_get_file_diff(handle: *mut RepoHandle, path: *const c_char)
     JjResult::success(diff_output)
 }
 
-/// Get the before/after content for a file in the working copy
-/// Returns JjResult with JSON containing before and after content
+/// Get the before/after content for a file in the working copy.
+/// Returns JjResult with JSON containing before and after content.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `path` must be a valid, null-terminated C string or NULL (returns error).
+/// - The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_file_contents(
     handle: *mut RepoHandle,
@@ -1313,8 +1389,14 @@ pub extern "C" fn jj_get_file_contents(
     }
 }
 
-/// Get diff for a revision compared to its parent
-/// Returns JjResult with unified diff string on success
+/// Get diff for a revision compared to its parent.
+/// Returns JjResult with unified diff string on success.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `revision_id` must be a valid, null-terminated C string or NULL (returns error).
+/// - The caller must not use the handle concurrently from multiple threads.
 #[no_mangle]
 pub extern "C" fn jj_get_revision_diff(handle: *mut RepoHandle, revision_id: *const c_char) -> JjResult {
     let handle = unsafe {
@@ -1453,7 +1535,12 @@ pub extern "C" fn jj_get_revision_diff(handle: *mut RepoHandle, revision_id: *co
     JjResult::success(diff_output)
 }
 
-/// Close a repository handle and free its memory
+/// Close a repository handle and free its memory.
+///
+/// # Safety
+///
+/// `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (no-op).
+/// After calling this, the handle must not be used again.
 #[no_mangle]
 pub extern "C" fn jj_close_repo(handle: *mut RepoHandle) {
     if !handle.is_null() {
@@ -1463,7 +1550,12 @@ pub extern "C" fn jj_close_repo(handle: *mut RepoHandle) {
     }
 }
 
-/// Free a JjResult's memory
+/// Free a JjResult's memory.
+///
+/// # Safety
+///
+/// `result` must have been returned by one of the `jj_*` functions.
+/// The `data` and `error` pointers must not have been freed already.
 #[no_mangle]
 pub extern "C" fn jj_free_result(result: JjResult) {
     if !result.data.is_null() {
@@ -1478,7 +1570,12 @@ pub extern "C" fn jj_free_result(result: JjResult) {
     }
 }
 
-/// Free a string allocated by Rust
+/// Free a string allocated by Rust.
+///
+/// # Safety
+///
+/// `s` must be a pointer originally returned by a `jj_*` function (via `CString::into_raw`),
+/// or NULL (no-op). Must not be freed more than once.
 #[no_mangle]
 pub extern "C" fn jj_free_string(s: *mut c_char) {
     if !s.is_null() {
@@ -1498,6 +1595,14 @@ pub extern "C" fn jj_free_string(s: *mut c_char) {
 /// - ignore_immutable: if true, allow setting bookmark on immutable revisions
 ///
 /// Returns JjResult with empty success or error message.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `name` must be a valid, null-terminated C string or NULL (returns error).
+/// - `revision_id` must be a valid, null-terminated C string or NULL (returns error).
+/// - The caller must not use the handle concurrently from multiple threads.
+///   This function mutates the repo handle.
 #[no_mangle]
 pub extern "C" fn jj_set_bookmark(
     handle: *mut RepoHandle,

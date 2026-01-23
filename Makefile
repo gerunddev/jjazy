@@ -1,4 +1,4 @@
-.PHONY: all rust go clean install release
+.PHONY: all rust go clean install release test lint fmt
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION)"
@@ -34,3 +34,15 @@ install: release
 	@echo "Installing jjazy to /usr/local/bin..."
 	@sudo install -m 755 jjazy /usr/local/bin/jjazy
 	@echo "Installation complete! Run 'jjazy' from any jj repository."
+
+# Run tests
+test: rust
+	CGO_ENABLED=1 go test ./...
+
+# Run linter
+lint:
+	golangci-lint run
+
+# Format code
+fmt:
+	gofmt -w .

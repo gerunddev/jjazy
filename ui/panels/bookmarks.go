@@ -88,19 +88,10 @@ func (p *BookmarksPanel) Init() tea.Cmd {
 func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionPress {
-				itemIndex := msg.Y - 1 + p.viewport.YOffset
-				if itemIndex >= 0 && itemIndex < len(p.bookmarks) {
-					p.cursor = itemIndex
-					p.ensureCursorVisible()
-				}
-			}
-		case tea.MouseButtonWheelUp:
-			p.viewport.ScrollUp(3)
-		case tea.MouseButtonWheelDown:
-			p.viewport.ScrollDown(3)
+		if msg.Button == tea.MouseButtonLeft {
+			p.HandleMouseClick(msg, &p.viewport, len(p.bookmarks))
+		} else {
+			p.HandleMouseScroll(msg, &p.viewport)
 		}
 
 	case tea.KeyMsg:
@@ -108,24 +99,7 @@ func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !p.focused || !p.entered {
 			return p, nil
 		}
-		switch msg.String() {
-		case "up", "k":
-			p.CursorUp(len(p.bookmarks))
-			p.ensureCursorVisible()
-		case "down", "j":
-			p.CursorDown(len(p.bookmarks))
-			p.ensureCursorVisible()
-		case "g", "home":
-			p.CursorHome()
-			p.viewport.GotoTop()
-		case "G", "end":
-			p.CursorEnd(len(p.bookmarks))
-			p.viewport.GotoBottom()
-		case "ctrl+u", "pgup":
-			p.viewport.HalfPageUp()
-		case "ctrl+d", "pgdown":
-			p.viewport.HalfPageDown()
-		}
+		p.HandleCursorKeys(msg, len(p.bookmarks), &p.viewport)
 	}
 
 	if p.ready {
@@ -133,14 +107,6 @@ func (p *BookmarksPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return p, nil
-}
-
-func (p *BookmarksPanel) ensureCursorVisible() {
-	if p.cursor < p.viewport.YOffset {
-		p.viewport.SetYOffset(p.cursor)
-	} else if p.cursor >= p.viewport.YOffset+p.viewport.Height {
-		p.viewport.SetYOffset(p.cursor - p.viewport.Height + 1)
-	}
 }
 
 func (p *BookmarksPanel) View() string {

@@ -2,12 +2,14 @@ package jj
 
 import (
 	"encoding/json"
+	"sync"
 
 	"github.com/gerunddev/jjazy/jj/internal/ffi"
 )
 
 // Repo represents an open jj repository.
 type Repo struct {
+	mu  sync.Mutex
 	ptr ffi.RepoPtr
 }
 
@@ -22,7 +24,9 @@ func Open(path string) (*Repo, error) {
 
 // Branches returns a list of branches (bookmarks) in the repository.
 func (r *Repo) Branches() ([]Branch, error) {
+	r.mu.Lock()
 	data, err := ffi.ListBranches(r.ptr)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +40,9 @@ func (r *Repo) Branches() ([]Branch, error) {
 
 // Workspaces returns a list of workspaces in the repository.
 func (r *Repo) Workspaces() ([]Workspace, error) {
+	r.mu.Lock()
 	data, err := ffi.ListWorkspaces(r.ptr)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +56,9 @@ func (r *Repo) Workspaces() ([]Workspace, error) {
 
 // WorkingCopyChanges returns a list of changed files in the working copy.
 func (r *Repo) WorkingCopyChanges() ([]FileChange, error) {
+	r.mu.Lock()
 	data, err := ffi.GetWorkingCopyChanges(r.ptr)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +72,9 @@ func (r *Repo) WorkingCopyChanges() ([]FileChange, error) {
 
 // Operations returns a list of operations in the undo history.
 func (r *Repo) Operations() ([]Operation, error) {
+	r.mu.Lock()
 	data, err := ffi.ListOperations(r.ptr)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +88,9 @@ func (r *Repo) Operations() ([]Operation, error) {
 
 // Log returns the revision log.
 func (r *Repo) Log() ([]Revision, error) {
+	r.mu.Lock()
 	data, err := ffi.GetLog(r.ptr)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -92,17 +104,23 @@ func (r *Repo) Log() ([]Revision, error) {
 
 // Diff returns the unified diff for the working copy.
 func (r *Repo) Diff() (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.GetDiff(r.ptr)
 }
 
 // FileDiff returns the unified diff for a specific file in the working copy.
 func (r *Repo) FileDiff(path string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.GetFileDiff(r.ptr, path)
 }
 
 // FileContents returns the before/after contents of a specific file.
 func (r *Repo) FileContents(path string) (*FileContents, error) {
+	r.mu.Lock()
 	data, err := ffi.GetFileContents(r.ptr, path)
+	r.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +134,8 @@ func (r *Repo) FileContents(path string) (*FileContents, error) {
 
 // RevisionDiff returns the unified diff for a revision compared to its parent.
 func (r *Repo) RevisionDiff(revisionID string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.GetRevisionDiff(r.ptr, revisionID)
 }
 
@@ -123,6 +143,8 @@ func (r *Repo) RevisionDiff(revisionID string) (string, error) {
 // If allowBackwards is true, the bookmark can be moved to an ancestor.
 // If ignoreImmutable is true, the bookmark can be set on immutable revisions.
 func (r *Repo) SetBookmark(name, revisionID string, allowBackwards, ignoreImmutable bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.SetBookmark(r.ptr, name, revisionID, allowBackwards, ignoreImmutable)
 }
 
@@ -132,16 +154,22 @@ func (r *Repo) SetBookmark(name, revisionID string, allowBackwards, ignoreImmuta
 // as the current workspace's working copy (siblings).
 // If revisionIDs is provided, the new workspace starts on top of those revisions.
 func (r *Repo) WorkspaceAdd(destinationPath, workspaceName string, revisionIDs ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.WorkspaceAdd(r.ptr, destinationPath, workspaceName, revisionIDs)
 }
 
 // WorkspaceForget removes workspace tracking (keeps files on disk).
 func (r *Repo) WorkspaceForget(workspaceName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return ffi.WorkspaceForget(r.ptr, workspaceName)
 }
 
 // Close closes the repository and frees associated resources.
 func (r *Repo) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.ptr != nil {
 		ffi.CloseRepo(r.ptr)
 		r.ptr = nil

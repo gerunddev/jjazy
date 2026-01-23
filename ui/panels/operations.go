@@ -57,43 +57,17 @@ func (p *OperationsPanel) Init() tea.Cmd {
 func (p *OperationsPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionPress {
-				itemIndex := msg.Y - 1 + p.viewport.YOffset
-				if itemIndex >= 0 && itemIndex < len(p.operations) {
-					p.cursor = itemIndex
-					p.ensureCursorVisible()
-				}
-			}
-		case tea.MouseButtonWheelUp:
-			p.viewport.ScrollUp(3)
-		case tea.MouseButtonWheelDown:
-			p.viewport.ScrollDown(3)
+		if msg.Button == tea.MouseButtonLeft {
+			p.HandleMouseClick(msg, &p.viewport, len(p.operations))
+		} else {
+			p.HandleMouseScroll(msg, &p.viewport)
 		}
 
 	case tea.KeyMsg:
 		if !p.focused {
 			return p, nil
 		}
-		switch msg.String() {
-		case "up", "k":
-			p.CursorUp(len(p.operations))
-			p.ensureCursorVisible()
-		case "down", "j":
-			p.CursorDown(len(p.operations))
-			p.ensureCursorVisible()
-		case "g", "home":
-			p.CursorHome()
-			p.viewport.GotoTop()
-		case "G", "end":
-			p.CursorEnd(len(p.operations))
-			p.viewport.GotoBottom()
-		case "ctrl+u", "pgup":
-			p.viewport.HalfPageUp()
-		case "ctrl+d", "pgdown":
-			p.viewport.HalfPageDown()
-		}
+		p.HandleCursorKeys(msg, len(p.operations), &p.viewport)
 	}
 
 	if p.ready {
@@ -101,14 +75,6 @@ func (p *OperationsPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return p, nil
-}
-
-func (p *OperationsPanel) ensureCursorVisible() {
-	if p.cursor < p.viewport.YOffset {
-		p.viewport.SetYOffset(p.cursor)
-	} else if p.cursor >= p.viewport.YOffset+p.viewport.Height {
-		p.viewport.SetYOffset(p.cursor - p.viewport.Height + 1)
-	}
 }
 
 func (p *OperationsPanel) View() string {

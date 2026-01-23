@@ -2,6 +2,42 @@
 
 > Lazygit inspired TUI for Jujutsu.
 
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install gerunddev/tap/jjazy
+```
+
+### Install Script (macOS/Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gerunddev/jjazy/main/install.sh | bash
+```
+
+To install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gerunddev/jjazy/main/install.sh | bash -s v0.1.0
+```
+
+### Download Binary
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/gerunddev/jjazy/releases).
+
+### Build from Source
+
+Requires Go 1.23+ and Rust 1.70+:
+
+```bash
+git clone https://github.com/gerunddev/jjazy.git
+cd jjazy
+make install
+```
+
+> **Note:** `go install github.com/gerunddev/jjazy@latest` does not work because this project includes a Rust FFI component that must be compiled locally.
+
 ## Prerequisites
 
 - [Difftastic](https://difftastic.wilfred.me.uk/) - A structural diff tool that understands syntax

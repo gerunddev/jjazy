@@ -195,7 +195,7 @@ func Edit(repoPath, revisionSpec string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("edit failed: %s", string(output))
+		return fmt.Errorf("edit failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -206,7 +206,7 @@ func RestoreFile(repoPath, filePath string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("restore failed: %s", string(output))
+		return fmt.Errorf("restore failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -217,7 +217,7 @@ func SquashFile(repoPath, filePath string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("squash failed: %s", string(output))
+		return fmt.Errorf("squash failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -228,7 +228,7 @@ func NewChange(repoPath, changeID string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("new failed: %s", string(output))
+		return fmt.Errorf("new failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -239,7 +239,7 @@ func GetDescription(repoPath, changeID string) (string, error) {
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("get description failed: %s", string(output))
+		return "", fmt.Errorf("get description failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -250,7 +250,7 @@ func Describe(repoPath, changeID, message string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("describe failed: %s", string(output))
+		return fmt.Errorf("describe failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -261,7 +261,7 @@ func Abandon(repoPath, changeID string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("abandon failed: %s", string(output))
+		return fmt.Errorf("abandon failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -272,7 +272,7 @@ func Squash(repoPath, changeID string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("squash failed: %s", string(output))
+		return fmt.Errorf("squash failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -284,7 +284,7 @@ func Rebase(repoPath, sourceRev, destRev string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("rebase failed: %s", string(output))
+		return fmt.Errorf("rebase failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -296,7 +296,7 @@ func RebaseBranch(repoPath, branchRev, destRev string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("rebase failed: %s", string(output))
+		return fmt.Errorf("rebase failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
@@ -319,7 +319,7 @@ func SquashRange(repoPath, lower, higher, message string) error {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("squash range failed: %s", string(output))
+		return fmt.Errorf("squash range failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }

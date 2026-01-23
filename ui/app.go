@@ -149,465 +149,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		// Handle info overlay first if visible (any key dismisses)
-		if a.showInfo {
-			if msg.String() == "enter" || msg.String() == "esc" || msg.String() == "escape" {
-				a.showInfo = false
-				a.infoOverlay = nil
-				return a, nil
-			}
-			return a, nil
-		}
-
-		// Handle confirm overlay first if visible
-		if a.showConfirm {
-			switch msg.String() {
-			case "esc", "escape", "ctrl+g", "ctrl+c":
-				// Cancel confirmation
-				a.showConfirm = false
-				a.confirmOverlay = nil
-				a.confirmAction = ""
-				return a, nil
-			case "enter":
-				// Process confirmation
-				if a.confirmOverlay.Confirmed() {
-					a.handleConfirmAction()
-				}
-				a.showConfirm = false
-				a.confirmOverlay = nil
-				a.confirmAction = ""
-				return a, nil
-			default:
-				_, cmd := a.confirmOverlay.Update(msg)
-				return a, cmd
+		// Try overlay handlers first
+		if a.showInfo || a.showConfirm || a.showTextInput || a.showHelp {
+			if model, cmd, handled := a.handleFloatingOverlay(msg); handled {
+				return model, cmd
 			}
 		}
 
-		// Handle floating text input first if visible
-		if a.showTextInput {
-			switch msg.String() {
-			case "ctrl+x", "esc", "escape", "ctrl+c", "ctrl+g":
-				// Cancel text input
-				a.showTextInput = false
-				a.textInputOverlay = nil
-				a.textInputAction = ""
-				return a, nil
-			case "ctrl+s":
-				// Save text input
-				value := a.textInputOverlay.Value()
-				a.showTextInput = false
-				a.textInputOverlay = nil
-
-				// Execute the action based on textInputAction
-				switch a.textInputAction {
-				case "describe":
-					if change := a.logPanel.SelectedChange(); change != nil {
-						_ = jj.Describe(a.repoPath, change.ChangeID, value)
-						a.refreshAllPanels()
-					}
-				case "workspace_add":
-					if value != "" {
-						if err := a.repo.WorkspaceAdd(value, ""); err != nil {
-							a.showInfoDialog("Error", err.Error())
-						} else {
-							a.workspacePanel.Refresh()
-						}
-					}
-				case "squash_range":
-					a.executeSquashRange(value)
-				}
-				a.textInputAction = ""
-				return a, nil
-			default:
-				_, cmd := a.textInputOverlay.Update(msg)
-				return a, cmd
-			}
+		// Try global keys
+		if model, cmd, handled := a.handleGlobalKeys(msg); handled {
+			return model, cmd
 		}
 
-		// Handle floating help if visible
-		if a.showHelp {
-			switch {
-			case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.Help):
-				a.showHelp = false
-				return a, nil
-			case key.Matches(msg, a.keys.Quit):
-				return a, tea.Quit
-			default:
-				_, cmd := a.helpOverlay.Update(msg)
-				return a, cmd
+		// Experience-specific actions
+		if a.currentExperience == ExperienceLog {
+			if model, cmd, handled := a.handleLogActions(msg); handled {
+				return model, cmd
 			}
 		}
-
-		// Global keys
-		switch {
-		case key.Matches(msg, a.keys.Quit):
-			return a, tea.Quit
-
-		case key.Matches(msg, a.keys.Help):
-			a.showHelp = true
-			return a, nil
-
-		case key.Matches(msg, a.keys.Escape),
-			msg.Type == tea.KeyEscape,
-			msg.Type == tea.KeyEsc,
-			msg.String() == "esc",
-			msg.String() == "escape",
-			msg.String() == "ctrl+g",
-			msg.Type == tea.KeyCtrlG:
-			// First check if we're in bookmark set mode
-			if a.bookmarkSetMode {
-				a.exitBookmarkSetMode()
-				return a, nil
-			}
-			// Check if we're in squash mode
-			if a.squashMode {
-				a.exitSquashMode()
-				return a, nil
-			}
-			// Check if we need to exit cursor mode in browsable panels
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
-				a.workspacePanel.SetEntered(false)
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-				a.bookmarksPanel.SetEntered(false)
-				return a, nil
-			}
-			// Go back to previous experience
-			if a.currentExperience == ExperienceChange {
-				a.exitChangeExperience()
-			}
-			return a, nil
-
-		case msg.Type == tea.KeyLeft, msg.String() == "left":
-			// Left arrow navigation
-			// First check if we're in bookmark set mode and on log panel
-			if a.bookmarkSetMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
-				a.exitBookmarkSetMode()
-				return a, nil
-			}
-			// Check if we're in squash mode and on log panel
-			if a.squashMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
-				a.exitSquashMode()
-				return a, nil
-			}
-			// Check if we need to exit entered mode
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
-				a.workspacePanel.SetEntered(false)
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-				a.bookmarksPanel.SetEntered(false)
-				return a, nil
-			}
-			if a.currentExperience == ExperienceChange {
-				if a.focusedPanel == 0 {
-					// From Diff → Files panel
-					a.setFocus(1)
-					return a, nil
-				}
-				// From Files → Exit to Log experience
-				a.exitChangeExperience()
-				return a, nil
-			} else if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
-				// From Log panel → Workspace
-				a.setFocus(1)
-				return a, nil
-			}
-
-		case msg.Type == tea.KeyRight, msg.String() == "right":
-			// Right arrow navigation
-			// First check if we need to exit entered mode and move to log
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
-				a.workspacePanel.SetEntered(false)
-				a.setFocus(0) // Move to log
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-				a.bookmarksPanel.SetEntered(false)
-				a.setFocus(0) // Move to log
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog {
-				if a.focusedPanel == 0 {
-					// From Log panel → drill into change
-					if change := a.logPanel.SelectedChange(); change != nil {
-						a.enterChangeExperience(change.ChangeID, change.IsWorkingCopy)
-						return a, nil
-					}
-				} else if a.focusedPanel == 1 || a.focusedPanel == 2 {
-					// From Workspace or Bookmarks → Log panel
-					a.setFocus(0)
-					return a, nil
-				}
-			} else if a.currentExperience == ExperienceChange {
-				if a.focusedPanel == 1 {
-					// From Files → Diff panel
-					a.setFocus(0)
-					return a, nil
-				}
-				// From Diff → no action (already at rightmost)
-			}
-
-		case key.Matches(msg, a.keys.Enter):
-			if a.currentExperience == ExperienceLog {
-				switch a.focusedPanel {
-				case 0: // Log panel
-					if a.bookmarkSetMode {
-						// Confirm bookmark set
-						if change := a.logPanel.SelectedChange(); change != nil {
-							a.executeBookmarkSet(change.CommitID)
-						}
-						return a, nil
-					}
-					if a.squashMode {
-						// Confirm second selection in squash mode
-						if change := a.logPanel.SelectedChange(); change != nil {
-							a.handleSquashSecondSelection(change.ChangeID)
-						}
-						return a, nil
-					}
-					// Normal: jj edit
-					if change := a.logPanel.SelectedChange(); change != nil {
-						_ = jj.Edit(a.repoPath, change.ChangeID)
-						a.refreshAllPanels()
-					}
-					return a, nil
-				case 1: // Workspace panel
-					if !a.workspacePanel.IsEntered() {
-						a.workspacePanel.SetEntered(true)
-					} else if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
-						// Switch workspace using jj-lib (close and reopen repo)
-						if err := a.switchWorkspace(ws.RootPath); err != nil {
-							a.showInfoDialog("Error", err.Error())
-						} else {
-							a.workspacePanel.SetEntered(false)
-							a.setFocus(0) // Return to log view
-						}
-					}
-					return a, nil
-				case 2: // Bookmarks panel
-					if !a.bookmarksPanel.IsEntered() {
-						a.bookmarksPanel.SetEntered(true)
-					} else if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
-						// Enter starts bookmark set mode
-						a.enterBookmarkSetMode(bm.Name)
-					}
-					return a, nil
-				}
-			}
-
-		case msg.Type == tea.KeyDown, msg.String() == "down":
-			// Down from Workspace → Bookmarks (in Log experience)
-			// Only move between panels if not in entered mode
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && !a.workspacePanel.IsEntered() {
-				a.setFocus(2)
-				return a, nil
-			}
-
-		case msg.Type == tea.KeyUp, msg.String() == "up":
-			// Up from Bookmarks → Workspace (in Log experience)
-			// Only move between panels if not in entered mode
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && !a.bookmarksPanel.IsEntered() {
-				a.setFocus(1)
-				return a, nil
-			}
-
-		case key.Matches(msg, a.keys.Panel0):
-			a.setFocus(0) // Main panel (log or diff)
-			return a, nil
-
-		case key.Matches(msg, a.keys.Panel1):
-			a.setFocus(1) // First sidebar panel
-			return a, nil
-
-		case key.Matches(msg, a.keys.Panel2):
-			// Only valid in Log experience (bookmarks)
-			if a.currentExperience == ExperienceLog {
-				a.setFocus(2)
-			}
-			return a, nil
-
-		case key.Matches(msg, a.keys.NextPanel):
-			// If in cursor mode in a browsable panel, exit to focus mode
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
-				a.workspacePanel.SetEntered(false)
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-				a.bookmarksPanel.SetEntered(false)
-				return a, nil
-			}
-			maxPanels := a.maxPanelsForExperience()
-			a.setFocus((a.focusedPanel + 1) % maxPanels)
-			return a, nil
-
-		case key.Matches(msg, a.keys.PrevPanel):
-			// If in cursor mode in a browsable panel, exit to focus mode
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
-				a.workspacePanel.SetEntered(false)
-				return a, nil
-			}
-			if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-				a.bookmarksPanel.SetEntered(false)
-				return a, nil
-			}
-			maxPanels := a.maxPanelsForExperience()
-			a.setFocus((a.focusedPanel + maxPanels - 1) % maxPanels)
-			return a, nil
-		}
-
-		// Log view change actions (only in Log experience, Log panel focused)
-		if a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
-			switch {
-			case key.Matches(msg, a.keys.NewChange):
-				// Create new change after selected
-				if change := a.logPanel.SelectedChange(); change != nil {
-					_ = jj.NewChange(a.repoPath, change.ChangeID)
-					a.refreshAllPanels()
-				}
-				return a, nil
-
-			case key.Matches(msg, a.keys.Describe):
-				// Edit change description
-				if change := a.logPanel.SelectedChange(); change != nil {
-					// Get current description
-					currentDesc, _ := jj.GetDescription(a.repoPath, change.ChangeID)
-
-					// Show text input overlay
-					a.textInputOverlay = floating.NewTextInputOverlay(
-						"Describe Change",
-						"Enter description...",
-						currentDesc,
-					)
-					a.textInputOverlay.SetSize(a.width, a.height-1)
-					a.showTextInput = true
-					a.textInputAction = "describe"
-				}
-				return a, nil
-
-			case key.Matches(msg, a.keys.Abandon):
-				// Abandon change
-				if change := a.logPanel.SelectedChange(); change != nil {
-					_ = jj.Abandon(a.repoPath, change.ChangeID)
-					a.refreshAllPanels()
-				}
-				return a, nil
-
-			case key.Matches(msg, a.keys.SquashChange):
-				if change := a.logPanel.SelectedChange(); change != nil {
-					if a.squashMode {
-						// Second 's' press - confirm squash selection (same as Enter)
-						a.handleSquashSecondSelection(change.ChangeID)
-					} else {
-						// First 's' press - enter squash mode
-						a.enterSquashMode(change.ChangeID)
-					}
-				}
-				return a, nil
-			}
-		}
-
-		// Bookmark edit action ('e' key in bookmarks panel when entered)
-		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-			if msg.String() == "e" {
-				if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
-					// Use Navigation to find edit target (tip of branch or boundary)
-					if revisions, err := a.repo.Log(); err == nil {
-						nav := app.NewNavigation(a.repoPath, revisions)
-						if target := nav.FindBookmarkEditTarget(bm.Name); target != nil {
-							_ = nav.EditRevision(target.ChangeID)
-						}
-					}
-					a.bookmarksPanel.SetEntered(false)
-					a.setFocus(0) // Return to log view
-					a.refreshAllPanels()
-				}
-				return a, nil
-			}
-		}
-
-		// Workspace panel actions
-		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 {
-			// 'a' key in focus mode (not entered) - add workspace
-			if msg.String() == "a" && !a.workspacePanel.IsEntered() {
-				a.textInputOverlay = floating.NewTextInputOverlay(
-					"Add Workspace",
-					"Enter destination path...",
-					"",
-				)
-				a.textInputOverlay.SetSize(a.width, a.height-1)
-				a.showTextInput = true
-				a.textInputAction = "workspace_add"
-				return a, nil
-			}
-
-			// 'd' key in cursor mode (entered) - forget workspace
-			if msg.String() == "d" && a.workspacePanel.IsEntered() {
-				if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
-					if ws.IsCurrent {
-						a.showInfoDialog("Error", "Cannot forget current workspace")
-					} else {
-						if err := a.repo.WorkspaceForget(ws.Name); err != nil {
-							a.showInfoDialog("Error", err.Error())
-						} else {
-							// Adjust cursor if needed and refresh
-							if a.workspacePanel.Cursor() >= a.workspacePanel.Count()-1 {
-								a.workspacePanel.SetCursor(a.workspacePanel.Count() - 2)
-							}
-							a.workspacePanel.Refresh()
-						}
-					}
-				}
-				return a, nil
-			}
-		}
-
-		// File operations (only in Change experience, Files panel focused, working copy)
-		if a.currentExperience == ExperienceChange && a.focusedPanel == 1 && a.selectedChangeIsWorking {
-			switch {
-			case msg.Type == tea.KeyDelete || msg.Type == tea.KeyBackspace ||
-				msg.String() == "delete" || msg.String() == "backspace":
-				// Restore (discard) file changes - using Delete/Backspace keys
-				if file := a.filesPanel.SelectedFile(); file != nil {
-					_ = jj.RestoreFile(a.repoPath, file.Path) // TODO: handle error
-					a.filesPanel.LoadForChange(a.selectedChangeID)
-
-					// If no files remain, exit to log (consistent with squash)
-					if a.filesPanel.Count() == 0 {
-						a.exitChangeExperience()
-						a.refreshAllPanels()
-					} else {
-						// Update diff view for remaining files
-						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
-							a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
-						} else {
-							a.diffPanel.LoadChange(a.selectedChangeID)
-						}
-					}
-				}
-				return a, nil
-
-			case msg.String() == "s":
-				// Squash file to parent
-				if file := a.filesPanel.SelectedFile(); file != nil {
-					_ = jj.SquashFile(a.repoPath, file.Path) // TODO: handle error
-					a.filesPanel.LoadForChange(a.selectedChangeID)
-
-					// If no files remain, exit to log
-					if a.filesPanel.Count() == 0 {
-						a.exitChangeExperience()
-						a.refreshAllPanels()
-					} else {
-						// Update diff view for remaining files
-						if newFile := a.filesPanel.SelectedFile(); newFile != nil {
-							a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
-						} else {
-							a.diffPanel.LoadChange(a.selectedChangeID)
-						}
-					}
-				}
-				return a, nil
+		if a.currentExperience == ExperienceChange {
+			if model, cmd, handled := a.handleChangeActions(msg); handled {
+				return model, cmd
 			}
 		}
 
@@ -637,6 +199,497 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, tea.Batch(cmds...)
+}
+
+// handleFloatingOverlay handles keys when an overlay (info, confirm, text input, help) is visible.
+// Returns (model, cmd, true) if handled, (nil, nil, false) if not.
+func (a *App) handleFloatingOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	// Handle info overlay (any key dismisses)
+	if a.showInfo {
+		if msg.String() == "enter" || msg.String() == "esc" || msg.String() == "escape" {
+			a.showInfo = false
+			a.infoOverlay = nil
+		}
+		return a, nil, true
+	}
+
+	// Handle confirm overlay
+	if a.showConfirm {
+		switch msg.String() {
+		case "esc", "escape", "ctrl+g", "ctrl+c":
+			a.showConfirm = false
+			a.confirmOverlay = nil
+			a.confirmAction = ""
+			return a, nil, true
+		case "enter":
+			if a.confirmOverlay.Confirmed() {
+				a.handleConfirmAction()
+			}
+			a.showConfirm = false
+			a.confirmOverlay = nil
+			a.confirmAction = ""
+			return a, nil, true
+		default:
+			_, cmd := a.confirmOverlay.Update(msg)
+			return a, cmd, true
+		}
+	}
+
+	// Handle floating text input
+	if a.showTextInput {
+		switch msg.String() {
+		case "ctrl+x", "esc", "escape", "ctrl+c", "ctrl+g":
+			a.showTextInput = false
+			a.textInputOverlay = nil
+			a.textInputAction = ""
+			return a, nil, true
+		case "ctrl+s":
+			value := a.textInputOverlay.Value()
+			a.showTextInput = false
+			a.textInputOverlay = nil
+
+			switch a.textInputAction {
+			case "describe":
+				if change := a.logPanel.SelectedChange(); change != nil {
+					_ = jj.Describe(a.repoPath, change.ChangeID, value)
+					a.refreshAllPanels()
+				}
+			case "workspace_add":
+				if value != "" {
+					if err := a.repo.WorkspaceAdd(value, ""); err != nil {
+						a.showInfoDialog("Error", err.Error())
+					} else {
+						a.workspacePanel.Refresh()
+					}
+				}
+			case "squash_range":
+				a.executeSquashRange(value)
+			}
+			a.textInputAction = ""
+			return a, nil, true
+		default:
+			_, cmd := a.textInputOverlay.Update(msg)
+			return a, cmd, true
+		}
+	}
+
+	// Handle floating help
+	if a.showHelp {
+		switch {
+		case key.Matches(msg, a.keys.Escape), key.Matches(msg, a.keys.Help):
+			a.showHelp = false
+			return a, nil, true
+		case key.Matches(msg, a.keys.Quit):
+			return a, tea.Quit, true
+		default:
+			_, cmd := a.helpOverlay.Update(msg)
+			return a, cmd, true
+		}
+	}
+
+	return nil, nil, false
+}
+
+// handleGlobalKeys handles quit, help, escape/back navigation, arrow keys, and panel switching.
+// Returns (model, cmd, true) if handled, (nil, nil, false) if not.
+func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, a.keys.Quit):
+		return a, tea.Quit, true
+
+	case key.Matches(msg, a.keys.Help):
+		a.showHelp = true
+		return a, nil, true
+
+	case key.Matches(msg, a.keys.Escape),
+		msg.Type == tea.KeyEscape,
+		msg.Type == tea.KeyEsc,
+		msg.String() == "esc",
+		msg.String() == "escape",
+		msg.String() == "ctrl+g",
+		msg.Type == tea.KeyCtrlG:
+		// First check if we're in bookmark set mode
+		if a.bookmarkSetMode {
+			a.exitBookmarkSetMode()
+			return a, nil, true
+		}
+		// Check if we're in squash mode
+		if a.squashMode {
+			a.exitSquashMode()
+			return a, nil, true
+		}
+		// Check if we need to exit cursor mode in browsable panels
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+			a.workspacePanel.SetEntered(false)
+			return a, nil, true
+		}
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			a.bookmarksPanel.SetEntered(false)
+			return a, nil, true
+		}
+		// Go back to previous experience
+		if a.currentExperience == ExperienceChange {
+			a.exitChangeExperience()
+		}
+		return a, nil, true
+
+	case msg.Type == tea.KeyLeft, msg.String() == "left":
+		// Left arrow navigation
+		// First check if we're in bookmark set mode and on log panel
+		if a.bookmarkSetMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+			a.exitBookmarkSetMode()
+			return a, nil, true
+		}
+		// Check if we're in squash mode and on log panel
+		if a.squashMode && a.currentExperience == ExperienceLog && a.focusedPanel == 0 {
+			a.exitSquashMode()
+			return a, nil, true
+		}
+		// Check if we need to exit entered mode
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+			a.workspacePanel.SetEntered(false)
+			return a, nil, true
+		}
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			a.bookmarksPanel.SetEntered(false)
+			return a, nil, true
+		}
+		switch {
+		case a.currentExperience == ExperienceChange:
+			if a.focusedPanel == 0 {
+				// From Diff → Files panel
+				a.setFocus(1)
+				return a, nil, true
+			}
+			// From Files → Exit to Log experience
+			a.exitChangeExperience()
+			return a, nil, true
+		case a.currentExperience == ExperienceLog && a.focusedPanel == 0:
+			// From Log panel → Workspace
+			a.setFocus(1)
+			return a, nil, true
+		}
+
+	case msg.Type == tea.KeyRight, msg.String() == "right":
+		// Right arrow navigation
+		// First check if we need to exit entered mode and move to log
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+			a.workspacePanel.SetEntered(false)
+			a.setFocus(0) // Move to log
+			return a, nil, true
+		}
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			a.bookmarksPanel.SetEntered(false)
+			a.setFocus(0) // Move to log
+			return a, nil, true
+		}
+		switch a.currentExperience {
+		case ExperienceLog:
+			switch a.focusedPanel {
+			case 0:
+				// From Log panel → drill into change
+				if change := a.logPanel.SelectedChange(); change != nil {
+					a.enterChangeExperience(change.ChangeID, change.IsWorkingCopy)
+					return a, nil, true
+				}
+			case 1, 2:
+				// From Workspace or Bookmarks → Log panel
+				a.setFocus(0)
+				return a, nil, true
+			}
+		case ExperienceChange:
+			if a.focusedPanel == 1 {
+				// From Files → Diff panel
+				a.setFocus(0)
+				return a, nil, true
+			}
+			// From Diff → no action (already at rightmost)
+		}
+
+	case key.Matches(msg, a.keys.Enter):
+		if a.currentExperience == ExperienceLog {
+			switch a.focusedPanel {
+			case 0: // Log panel
+				if a.bookmarkSetMode {
+					// Confirm bookmark set
+					if change := a.logPanel.SelectedChange(); change != nil {
+						a.executeBookmarkSet(change.CommitID)
+					}
+					return a, nil, true
+				}
+				if a.squashMode {
+					// Confirm second selection in squash mode
+					if change := a.logPanel.SelectedChange(); change != nil {
+						a.handleSquashSecondSelection(change.ChangeID)
+					}
+					return a, nil, true
+				}
+				// Normal: jj edit
+				if change := a.logPanel.SelectedChange(); change != nil {
+					_ = jj.Edit(a.repoPath, change.ChangeID)
+					a.refreshAllPanels()
+				}
+				return a, nil, true
+			case 1: // Workspace panel
+				if !a.workspacePanel.IsEntered() {
+					a.workspacePanel.SetEntered(true)
+				} else if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
+					// Switch workspace using jj-lib (close and reopen repo)
+					if err := a.switchWorkspace(ws.RootPath); err != nil {
+						a.showInfoDialog("Error", err.Error())
+					} else {
+						a.workspacePanel.SetEntered(false)
+						a.setFocus(0) // Return to log view
+					}
+				}
+				return a, nil, true
+			case 2: // Bookmarks panel
+				if !a.bookmarksPanel.IsEntered() {
+					a.bookmarksPanel.SetEntered(true)
+				} else if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
+					// Enter starts bookmark set mode
+					a.enterBookmarkSetMode(bm.Name)
+				}
+				return a, nil, true
+			}
+		}
+
+	case msg.Type == tea.KeyDown, msg.String() == "down":
+		// Down from Workspace → Bookmarks (in Log experience)
+		// Only move between panels if not in entered mode
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && !a.workspacePanel.IsEntered() {
+			a.setFocus(2)
+			return a, nil, true
+		}
+
+	case msg.Type == tea.KeyUp, msg.String() == "up":
+		// Up from Bookmarks → Workspace (in Log experience)
+		// Only move between panels if not in entered mode
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && !a.bookmarksPanel.IsEntered() {
+			a.setFocus(1)
+			return a, nil, true
+		}
+
+	case key.Matches(msg, a.keys.Panel0):
+		a.setFocus(0) // Main panel (log or diff)
+		return a, nil, true
+
+	case key.Matches(msg, a.keys.Panel1):
+		a.setFocus(1) // First sidebar panel
+		return a, nil, true
+
+	case key.Matches(msg, a.keys.Panel2):
+		// Only valid in Log experience (bookmarks)
+		if a.currentExperience == ExperienceLog {
+			a.setFocus(2)
+		}
+		return a, nil, true
+
+	case key.Matches(msg, a.keys.NextPanel):
+		// If in cursor mode in a browsable panel, exit to focus mode
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+			a.workspacePanel.SetEntered(false)
+			return a, nil, true
+		}
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			a.bookmarksPanel.SetEntered(false)
+			return a, nil, true
+		}
+		maxPanels := a.maxPanelsForExperience()
+		a.setFocus((a.focusedPanel + 1) % maxPanels)
+		return a, nil, true
+
+	case key.Matches(msg, a.keys.PrevPanel):
+		// If in cursor mode in a browsable panel, exit to focus mode
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 1 && a.workspacePanel.IsEntered() {
+			a.workspacePanel.SetEntered(false)
+			return a, nil, true
+		}
+		if a.currentExperience == ExperienceLog && a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+			a.bookmarksPanel.SetEntered(false)
+			return a, nil, true
+		}
+		maxPanels := a.maxPanelsForExperience()
+		a.setFocus((a.focusedPanel + maxPanels - 1) % maxPanels)
+		return a, nil, true
+	}
+
+	return nil, nil, false
+}
+
+// handleLogActions handles Log experience actions: change operations on the log panel,
+// bookmark edit in the bookmarks panel, and workspace add/forget actions.
+// Returns (model, cmd, true) if handled, (nil, nil, false) if not.
+func (a *App) handleLogActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	// Log view change actions (only when Log panel focused)
+	if a.focusedPanel == 0 {
+		switch {
+		case key.Matches(msg, a.keys.NewChange):
+			// Create new change after selected
+			if change := a.logPanel.SelectedChange(); change != nil {
+				_ = jj.NewChange(a.repoPath, change.ChangeID)
+				a.refreshAllPanels()
+			}
+			return a, nil, true
+
+		case key.Matches(msg, a.keys.Describe):
+			// Edit change description
+			if change := a.logPanel.SelectedChange(); change != nil {
+				// Get current description
+				currentDesc, _ := jj.GetDescription(a.repoPath, change.ChangeID)
+
+				// Show text input overlay
+				a.textInputOverlay = floating.NewTextInputOverlay(
+					"Describe Change",
+					"Enter description...",
+					currentDesc,
+				)
+				a.textInputOverlay.SetSize(a.width, a.height-1)
+				a.showTextInput = true
+				a.textInputAction = "describe"
+			}
+			return a, nil, true
+
+		case key.Matches(msg, a.keys.Abandon):
+			// Abandon change
+			if change := a.logPanel.SelectedChange(); change != nil {
+				_ = jj.Abandon(a.repoPath, change.ChangeID)
+				a.refreshAllPanels()
+			}
+			return a, nil, true
+
+		case key.Matches(msg, a.keys.SquashChange):
+			if change := a.logPanel.SelectedChange(); change != nil {
+				if a.squashMode {
+					// Second 's' press - confirm squash selection (same as Enter)
+					a.handleSquashSecondSelection(change.ChangeID)
+				} else {
+					// First 's' press - enter squash mode
+					a.enterSquashMode(change.ChangeID)
+				}
+			}
+			return a, nil, true
+		}
+	}
+
+	// Bookmark edit action ('e' key in bookmarks panel when entered)
+	if a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+		if msg.String() == "e" {
+			if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
+				// Use Navigation to find edit target (tip of branch or boundary)
+				if revisions, err := a.repo.Log(); err == nil {
+					nav := app.NewNavigation(a.repoPath, revisions)
+					if target := nav.FindBookmarkEditTarget(bm.Name); target != nil {
+						_ = nav.EditRevision(target.ChangeID)
+					}
+				}
+				a.bookmarksPanel.SetEntered(false)
+				a.setFocus(0) // Return to log view
+				a.refreshAllPanels()
+			}
+			return a, nil, true
+		}
+	}
+
+	// Workspace panel actions
+	if a.focusedPanel == 1 {
+		// 'a' key in focus mode (not entered) - add workspace
+		if msg.String() == "a" && !a.workspacePanel.IsEntered() {
+			a.textInputOverlay = floating.NewTextInputOverlay(
+				"Add Workspace",
+				"Enter destination path...",
+				"",
+			)
+			a.textInputOverlay.SetSize(a.width, a.height-1)
+			a.showTextInput = true
+			a.textInputAction = "workspace_add"
+			return a, nil, true
+		}
+
+		// 'd' key in cursor mode (entered) - forget workspace
+		if msg.String() == "d" && a.workspacePanel.IsEntered() {
+			if ws := a.workspacePanel.SelectedWorkspace(); ws != nil {
+				if ws.IsCurrent {
+					a.showInfoDialog("Error", "Cannot forget current workspace")
+				} else {
+					if err := a.repo.WorkspaceForget(ws.Name); err != nil {
+						a.showInfoDialog("Error", err.Error())
+					} else {
+						// Adjust cursor if needed and refresh
+						if a.workspacePanel.Cursor() >= a.workspacePanel.Count()-1 {
+							a.workspacePanel.SetCursor(a.workspacePanel.Count() - 2)
+						}
+						a.workspacePanel.Refresh()
+					}
+				}
+			}
+			return a, nil, true
+		}
+	}
+
+	return nil, nil, false
+}
+
+// handleChangeActions handles Change experience actions: file restore and file squash.
+// Returns (model, cmd, true) if handled, (nil, nil, false) if not.
+func (a *App) handleChangeActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	// File operations (only when Files panel focused, working copy)
+	if a.focusedPanel != 1 || !a.selectedChangeIsWorking {
+		return nil, nil, false
+	}
+
+	switch {
+	case msg.Type == tea.KeyDelete || msg.Type == tea.KeyBackspace ||
+		msg.String() == "delete" || msg.String() == "backspace":
+		// Restore (discard) file changes - using Delete/Backspace keys
+		if file := a.filesPanel.SelectedFile(); file != nil {
+			if err := jj.RestoreFile(a.repoPath, file.Path); err != nil {
+				a.showInfoDialog("Error", "Failed to restore file: "+err.Error())
+				return a, nil, true
+			}
+			a.filesPanel.LoadForChange(a.selectedChangeID)
+
+			// If no files remain, exit to log (consistent with squash)
+			if a.filesPanel.Count() == 0 {
+				a.exitChangeExperience()
+				a.refreshAllPanels()
+			} else {
+				// Update diff view for remaining files
+				if newFile := a.filesPanel.SelectedFile(); newFile != nil {
+					a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
+				} else {
+					a.diffPanel.LoadChange(a.selectedChangeID)
+				}
+			}
+		}
+		return a, nil, true
+
+	case msg.String() == "s":
+		// Squash file to parent
+		if file := a.filesPanel.SelectedFile(); file != nil {
+			if err := jj.SquashFile(a.repoPath, file.Path); err != nil {
+				a.showInfoDialog("Error", "Failed to squash file: "+err.Error())
+				return a, nil, true
+			}
+			a.filesPanel.LoadForChange(a.selectedChangeID)
+
+			// If no files remain, exit to log
+			if a.filesPanel.Count() == 0 {
+				a.exitChangeExperience()
+				a.refreshAllPanels()
+			} else {
+				// Update diff view for remaining files
+				if newFile := a.filesPanel.SelectedFile(); newFile != nil {
+					a.diffPanel.LoadFileInChange(a.selectedChangeID, newFile.Path)
+				} else {
+					a.diffPanel.LoadChange(a.selectedChangeID)
+				}
+			}
+		}
+		return a, nil, true
+	}
+
+	return nil, nil, false
 }
 
 func (a *App) View() string {
@@ -816,7 +869,7 @@ func (a *App) exitChangeExperience() {
 func (a *App) updateLayout() {
 	// Calculate dimensions
 	// Account for outer border (2 chars width, 2 chars height), help bar (1 line), and top spacing (1 line)
-	availableWidth := a.width - 2  // Border takes 2 chars
+	availableWidth := a.width - 2   // Border takes 2 chars
 	availableHeight := a.height - 4 // Border (2) + help bar (1) + top spacing (1)
 
 	sidebarWidth := SidebarWidth
@@ -844,9 +897,9 @@ func (a *App) updateLayout() {
 
 		// Panel bounds: 0=log, 1=workspace, 2=bookmarks
 		a.panelBounds = []PanelBound{
-			{X1: sidebarWidth, Y1: 0, X2: a.width - 1, Y2: contentHeight - 1, PanelIndex: 0},                    // Log
-			{X1: 0, Y1: 0, X2: sidebarWidth - 1, Y2: workspaceHeight - 1, PanelIndex: 1},                        // Workspace
-			{X1: 0, Y1: workspaceHeight, X2: sidebarWidth - 1, Y2: contentHeight - 1, PanelIndex: 2},            // Bookmarks
+			{X1: sidebarWidth, Y1: 0, X2: a.width - 1, Y2: contentHeight - 1, PanelIndex: 0},         // Log
+			{X1: 0, Y1: 0, X2: sidebarWidth - 1, Y2: workspaceHeight - 1, PanelIndex: 1},             // Workspace
+			{X1: 0, Y1: workspaceHeight, X2: sidebarWidth - 1, Y2: contentHeight - 1, PanelIndex: 2}, // Bookmarks
 		}
 
 	case ExperienceChange:
@@ -1335,7 +1388,12 @@ func (a *App) switchWorkspace(workspacePath string) error {
 	newRepo, err := jj.Open(workspacePath)
 	if err != nil {
 		// Try to reopen old repo on failure
-		a.repo, _ = jj.Open(a.repoPath)
+		oldRepo, reopenErr := jj.Open(a.repoPath)
+		if reopenErr != nil {
+			a.showInfoDialog("Critical Error", "Failed to reopen repository: "+reopenErr.Error())
+		} else {
+			a.repo = oldRepo
+		}
 		return err
 	}
 

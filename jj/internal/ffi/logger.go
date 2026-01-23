@@ -5,15 +5,16 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
 )
 
 var (
-	logger     *log.Logger
+	loggerPtr  atomic.Pointer[log.Logger]
 	loggerOnce sync.Once
-	logEnabled bool
+	logEnabled atomic.Bool
 )
 
 // init auto-initializes the logger from environment variables.
@@ -48,7 +49,7 @@ func InitLogger(logPath string, level log.Level) error {
 	var initErr error
 	loggerOnce.Do(func() {
 		if logPath == "" {
-			logEnabled = false
+			logEnabled.Store(false)
 			return
 		}
 
@@ -58,21 +59,22 @@ func InitLogger(logPath string, level log.Level) error {
 			return
 		}
 
-		logger = log.NewWithOptions(f, log.Options{
+		l := log.NewWithOptions(f, log.Options{
 			Level:           level,
 			Prefix:          "FFI",
 			ReportTimestamp: true,
 			ReportCaller:    false,
 		})
-		logEnabled = true
+		loggerPtr.Store(l)
+		logEnabled.Store(true)
 	})
 	return initErr
 }
 
 // SetLogger allows injecting a custom logger (useful for testing).
 func SetLogger(l *log.Logger) {
-	logger = l
-	logEnabled = l != nil
+	loggerPtr.Store(l)
+	logEnabled.Store(l != nil)
 }
 
 // logOp creates a logging context for an operation.
@@ -83,7 +85,11 @@ func SetLogger(l *log.Logger) {
 //	done := logOp("OpenRepo", "path", path)
 //	defer done(nil) // or done(err) on error
 func logOp(op string, keyvals ...any) func(error) {
-	if !logEnabled || logger == nil {
+	if !logEnabled.Load() {
+		return func(error) {}
+	}
+	l := loggerPtr.Load()
+	if l == nil {
 		return func(error) {}
 	}
 
@@ -99,9 +105,9 @@ func logOp(op string, keyvals ...any) func(error) {
 
 		if err != nil {
 			args = append(args, "error", err.Error())
-			logger.Error("operation failed", args...)
+			l.Error("operation failed", args...)
 		} else {
-			logger.Info("operation complete", args...)
+			l.Info("operation complete", args...)
 		}
 	}
 }
@@ -114,7 +120,11 @@ func logOp(op string, keyvals ...any) func(error) {
 //	// ... operation ...
 //	done(nil, "count", len(branches))
 func logOpWithResult(op string, keyvals ...any) func(error, ...any) {
-	if !logEnabled || logger == nil {
+	if !logEnabled.Load() {
+		return func(error, ...any) {}
+	}
+	l := loggerPtr.Load()
+	if l == nil {
 		return func(error, ...any) {}
 	}
 
@@ -130,9 +140,9 @@ func logOpWithResult(op string, keyvals ...any) func(error, ...any) {
 
 		if err != nil {
 			args = append(args, "error", err.Error())
-			logger.Error("operation failed", args...)
+			l.Error("operation failed", args...)
 		} else {
-			logger.Info("operation complete", args...)
+			l.Info("operation complete", args...)
 		}
 	}
 }

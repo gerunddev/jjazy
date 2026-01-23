@@ -66,19 +66,12 @@ func (p *WorkspacePanel) Init() tea.Cmd {
 func (p *WorkspacePanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionPress && p.entered {
-				itemIndex := msg.Y - 1 + p.viewport.YOffset
-				if itemIndex >= 0 && itemIndex < len(p.workspaces) {
-					p.cursor = itemIndex
-					p.ensureCursorVisible()
-				}
+		if msg.Button == tea.MouseButtonLeft {
+			if p.entered {
+				p.HandleMouseClick(msg, &p.viewport, len(p.workspaces))
 			}
-		case tea.MouseButtonWheelUp:
-			p.viewport.ScrollUp(3)
-		case tea.MouseButtonWheelDown:
-			p.viewport.ScrollDown(3)
+		} else {
+			p.HandleMouseScroll(msg, &p.viewport)
 		}
 
 	case tea.KeyMsg:
@@ -86,24 +79,7 @@ func (p *WorkspacePanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !p.focused || !p.entered {
 			return p, nil
 		}
-		switch msg.String() {
-		case "up", "k":
-			p.CursorUp(len(p.workspaces))
-			p.ensureCursorVisible()
-		case "down", "j":
-			p.CursorDown(len(p.workspaces))
-			p.ensureCursorVisible()
-		case "g", "home":
-			p.CursorHome()
-			p.viewport.GotoTop()
-		case "G", "end":
-			p.CursorEnd(len(p.workspaces))
-			p.viewport.GotoBottom()
-		case "ctrl+u", "pgup":
-			p.viewport.HalfPageUp()
-		case "ctrl+d", "pgdown":
-			p.viewport.HalfPageDown()
-		}
+		p.HandleCursorKeys(msg, len(p.workspaces), &p.viewport)
 	}
 
 	if p.ready {
@@ -111,14 +87,6 @@ func (p *WorkspacePanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return p, nil
-}
-
-func (p *WorkspacePanel) ensureCursorVisible() {
-	if p.cursor < p.viewport.YOffset {
-		p.viewport.SetYOffset(p.cursor)
-	} else if p.cursor >= p.viewport.YOffset+p.viewport.Height {
-		p.viewport.SetYOffset(p.cursor - p.viewport.Height + 1)
-	}
 }
 
 func (p *WorkspacePanel) View() string {

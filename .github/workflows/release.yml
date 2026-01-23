@@ -1,0 +1,211 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          # macOS AMD64 (Intel)
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          # Linux AMD64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          # Linux ARM64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@a54c7edd936b8f1c307d6294c72e34818c73a5cd # stable
+
+      - name: Run Rust tests
+        run: cd rust && cargo test
+
+      - name: Run Go tests
+        run: go test ./...
+        env:
+          CGO_ENABLED: 1
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          install-only: true
+
+      - name: Build with GoReleaser
+        run: goreleaser build --single-target --clean --snapshot
+        env:
+          CGO_ENABLED: 1
+
+      - name: Create archive
+        run: |
+          # Find the built binary (GoReleaser puts it in dist/)
+          BINARY=$(find dist -name "jjazy" -type f | head -1)
+          ARCHIVE_NAME="jjazy_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          tar -czvf "${ARCHIVE_NAME}" -C "$(dirname "${BINARY}")" jjazy -C "${GITHUB_WORKSPACE}" README.md
+          shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjazy_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: |
+            *.tar.gz
+            *.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums file
+        run: |
+          cd dist
+          cat *.sha256 > checksums.txt
+          rm -f *.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    # Skip for pre-releases (tags containing -)
+    if: ${{ !contains(github.ref, '-') }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Calculate SHA256 sums
+        id: sha256
+        run: |
+          cd dist
+          echo "darwin_arm64=$(shasum -a 256 jjazy_darwin_arm64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "darwin_amd64=$(shasum -a 256 jjazy_darwin_amd64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(shasum -a 256 jjazy_linux_arm64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(shasum -a 256 jjazy_linux_amd64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256_ARM64: ${{ steps.sha256.outputs.darwin_arm64 }}
+          SHA256_AMD64: ${{ steps.sha256.outputs.darwin_amd64 }}
+          SHA256_LINUX_ARM64: ${{ steps.sha256.outputs.linux_arm64 }}
+          SHA256_LINUX_AMD64: ${{ steps.sha256.outputs.linux_amd64 }}
+        run: |
+          # Skip if no token configured
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN not set, skipping formula update"
+            exit 0
+          fi
+
+          # Generate formula
+          cat > jjazy.rb << 'FORMULA_EOF'
+class Jjazy < Formula
+  desc "Terminal UI for jj (Jujutsu) version control"
+  homepage "https://github.com/gerunddev/jjazy"
+  version "VERSION_PLACEHOLDER"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_darwin_arm64.tar.gz"
+      sha256 "SHA256_ARM64_PLACEHOLDER"
+    else
+      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_darwin_amd64.tar.gz"
+      sha256 "SHA256_AMD64_PLACEHOLDER"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_linux_arm64.tar.gz"
+      sha256 "SHA256_LINUX_ARM64_PLACEHOLDER"
+    else
+      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_linux_amd64.tar.gz"
+      sha256 "SHA256_LINUX_AMD64_PLACEHOLDER"
+    end
+  end
+
+  def install
+    bin.install "jjazy"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/jjazy --version")
+  end
+end
+FORMULA_EOF
+
+          # Replace placeholders
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" jjazy.rb
+          sed -i "s/SHA256_ARM64_PLACEHOLDER/${SHA256_ARM64}/g" jjazy.rb
+          sed -i "s/SHA256_AMD64_PLACEHOLDER/${SHA256_AMD64}/g" jjazy.rb
+          sed -i "s/SHA256_LINUX_ARM64_PLACEHOLDER/${SHA256_LINUX_ARM64}/g" jjazy.rb
+          sed -i "s/SHA256_LINUX_AMD64_PLACEHOLDER/${SHA256_LINUX_AMD64}/g" jjazy.rb
+
+          # Clone and update tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/gerunddev/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          mv jjazy.rb tap/Formula/
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/jjazy.rb
+          git commit -m "Update jjazy to ${VERSION}"
+          git push

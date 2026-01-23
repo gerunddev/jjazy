@@ -55,7 +55,7 @@ func TestInitLogger_EmptyPath_DisablesLogging(t *testing.T) {
 		t.Fatalf("InitLogger failed: %v", err)
 	}
 
-	if logEnabled {
+	if logEnabled.Load() {
 		t.Error("logging should be disabled with empty path")
 	}
 }
@@ -195,7 +195,7 @@ func TestSetLogger(t *testing.T) {
 
 	SetLogger(customLogger)
 
-	if !logEnabled {
+	if !logEnabled.Load() {
 		t.Error("logging should be enabled after SetLogger")
 	}
 
@@ -212,7 +212,7 @@ func TestSetLogger_Nil(t *testing.T) {
 
 	SetLogger(nil)
 
-	if logEnabled {
+	if logEnabled.Load() {
 		t.Error("logging should be disabled when SetLogger(nil)")
 	}
 
@@ -227,8 +227,8 @@ func resetLogger() {
 	// Reset the sync.Once - this is a hack for testing
 	// In production, InitLogger is only called once
 	loggerOnce = sync.Once{}
-	logger = nil
-	logEnabled = false
+	loggerPtr.Store(nil)
+	logEnabled.Store(false)
 }
 
 func setupTestLogger(t *testing.T) *bytes.Buffer {
@@ -236,12 +236,13 @@ func setupTestLogger(t *testing.T) *bytes.Buffer {
 	resetLogger()
 
 	buf := &bytes.Buffer{}
-	logger = log.NewWithOptions(buf, log.Options{
+	l := log.NewWithOptions(buf, log.Options{
 		Level:           log.DebugLevel,
 		Prefix:          "FFI",
 		ReportTimestamp: false, // Easier to test without timestamps
 	})
-	logEnabled = true
+	loggerPtr.Store(l)
+	logEnabled.Store(true)
 
 	return buf
 }

@@ -18,6 +18,7 @@ type FilesPanel struct {
 	repo     *jj.Repo
 	repoPath string
 	files    []fixtures.FileChange
+	loadErr  error
 	viewport viewport.Model
 	ready    bool
 }
@@ -42,10 +43,11 @@ func (p *FilesPanel) loadFiles() {
 	// Get file changes from jj-lib
 	changes, err := p.repo.WorkingCopyChanges()
 	if err != nil {
-		// Fall back to empty list on error
 		p.files = nil
+		p.loadErr = err
 		return
 	}
+	p.loadErr = nil
 
 	// Convert jj.FileChange to fixtures.FileChange
 	p.files = make([]fixtures.FileChange, len(changes))
@@ -71,8 +73,10 @@ func (p *FilesPanel) LoadForChange(changeID string) {
 	cliFiles, err := jj.FilesForChange(p.repoPath, changeID)
 	if err != nil {
 		p.files = nil
+		p.loadErr = err
 		return
 	}
+	p.loadErr = nil
 
 	p.files = make([]fixtures.FileChange, len(cliFiles))
 	for i, cf := range cliFiles {
@@ -109,45 +113,17 @@ func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
-		// Handle mouse events even when not focused
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionPress {
-				// Convert Y to item index (subtract 1 for top border, add viewport offset)
-				itemIndex := msg.Y - 1 + p.viewport.YOffset
-				if itemIndex >= 0 && itemIndex < len(p.files) {
-					p.cursor = itemIndex
-					p.ensureCursorVisible()
-				}
-			}
-		case tea.MouseButtonWheelUp:
-			p.viewport.ScrollUp(3)
-		case tea.MouseButtonWheelDown:
-			p.viewport.ScrollDown(3)
+		if msg.Button == tea.MouseButtonLeft {
+			p.HandleMouseClick(msg, &p.viewport, len(p.files))
+		} else {
+			p.HandleMouseScroll(msg, &p.viewport)
 		}
 
 	case tea.KeyMsg:
 		if !p.focused {
 			return p, nil
 		}
-		switch msg.String() {
-		case "up", "k":
-			p.CursorUp(len(p.files))
-			p.ensureCursorVisible()
-		case "down", "j":
-			p.CursorDown(len(p.files))
-			p.ensureCursorVisible()
-		case "g", "home":
-			p.CursorHome()
-			p.viewport.GotoTop()
-		case "G", "end":
-			p.CursorEnd(len(p.files))
-			p.viewport.GotoBottom()
-		case "ctrl+u", "pgup":
-			p.viewport.HalfPageUp()
-		case "ctrl+d", "pgdown":
-			p.viewport.HalfPageDown()
-		}
+		p.HandleCursorKeys(msg, len(p.files), &p.viewport)
 	}
 
 	// Update viewport content when cursor changes
@@ -167,19 +143,14 @@ func (p *FilesPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, nil
 }
 
-func (p *FilesPanel) ensureCursorVisible() {
-	if p.cursor < p.viewport.YOffset {
-		p.viewport.SetYOffset(p.cursor)
-	} else if p.cursor >= p.viewport.YOffset+p.viewport.Height {
-		p.viewport.SetYOffset(p.cursor - p.viewport.Height + 1)
-	}
-}
-
 func (p *FilesPanel) View() string {
 	if !p.ready {
 		return p.RenderFrame("Loading...")
 	}
 	if len(p.files) == 0 {
+		if p.loadErr != nil {
+			return p.RenderFrame(theme.DimmedStyle.Render("Error: " + p.loadErr.Error()))
+		}
 		return p.RenderFrame(theme.DimmedStyle.Render("No files changed"))
 	}
 	return p.RenderFrame(p.viewport.View())

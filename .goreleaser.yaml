@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+before:
+  hooks:
+    # Build Rust library before Go compilation
+    - cd rust && cargo build --release
+
+builds:
+  - id: jjazy
+    main: .
+    binary: jjazy
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+release:
+  github:
+    owner: gerunddev
+    name: jjazy
+  draft: false
+  prerelease: auto
+  mode: append
+  name_template: "{{.Tag}}"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
