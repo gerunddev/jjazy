@@ -2,7 +2,8 @@ package ffi
 
 /*
 #cgo LDFLAGS: ${SRCDIR}/../../../rust/target/release/libjjbridge.a
-#cgo LDFLAGS: -framework CoreFoundation -framework Security -framework SystemConfiguration -liconv -lresolv
+#cgo darwin LDFLAGS: -framework CoreFoundation -framework Security -framework SystemConfiguration -liconv -lresolv
+#cgo linux LDFLAGS: -lresolv
 #include "bridge.h"
 #include <stdlib.h>
 */
