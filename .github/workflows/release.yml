@@ -120,6 +120,9 @@ jobs:
     # Skip for pre-releases (tags containing -)
     if: ${{ !contains(github.ref, '-') }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -154,49 +157,8 @@ jobs:
             exit 0
           fi
 
-          # Generate formula
-          cat > jjazy.rb << 'FORMULA_EOF'
-class Jjazy < Formula
-  desc "Terminal UI for jj (Jujutsu) version control"
-  homepage "https://github.com/gerunddev/jjazy"
-  version "VERSION_PLACEHOLDER"
-
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_darwin_arm64.tar.gz"
-      sha256 "SHA256_ARM64_PLACEHOLDER"
-    else
-      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_darwin_amd64.tar.gz"
-      sha256 "SHA256_AMD64_PLACEHOLDER"
-    end
-  end
-
-  on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_linux_arm64.tar.gz"
-      sha256 "SHA256_LINUX_ARM64_PLACEHOLDER"
-    else
-      url "https://github.com/gerunddev/jjazy/releases/download/vVERSION_PLACEHOLDER/jjazy_linux_amd64.tar.gz"
-      sha256 "SHA256_LINUX_AMD64_PLACEHOLDER"
-    end
-  end
-
-  def install
-    bin.install "jjazy"
-  end
-
-  test do
-    assert_match version.to_s, shell_output("#{bin}/jjazy --version")
-  end
-end
-FORMULA_EOF
-
-          # Replace placeholders
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" jjazy.rb
-          sed -i "s/SHA256_ARM64_PLACEHOLDER/${SHA256_ARM64}/g" jjazy.rb
-          sed -i "s/SHA256_AMD64_PLACEHOLDER/${SHA256_AMD64}/g" jjazy.rb
-          sed -i "s/SHA256_LINUX_ARM64_PLACEHOLDER/${SHA256_LINUX_ARM64}/g" jjazy.rb
-          sed -i "s/SHA256_LINUX_AMD64_PLACEHOLDER/${SHA256_LINUX_AMD64}/g" jjazy.rb
+          # Generate formula via script (avoids YAML/heredoc conflicts)
+          python3 .github/scripts/generate-formula.py jjazy.rb
 
           # Clone and update tap
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/gerunddev/homebrew-tap.git" tap
