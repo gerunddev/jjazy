@@ -37,6 +37,7 @@ type KeyMap struct {
 	Describe   key.Binding
 	Abandon    key.Binding
 	SquashChange key.Binding
+	SetCurrentBookmark key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings
@@ -142,6 +143,10 @@ func DefaultKeyMap() KeyMap {
 		SquashChange: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "squash"),
+		),
+		SetCurrentBookmark: key.NewBinding(
+			key.WithKeys("b"),
+			key.WithHelp("b", "set current bookmark"),
 		),
 	}
 }

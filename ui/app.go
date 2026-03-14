@@ -569,6 +569,32 @@ func (a *App) handleLogActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 				}
 			}
 			return a, nil, true
+
+		case key.Matches(msg, a.keys.SetCurrentBookmark):
+			// Set current bookmark to selected change
+			change := a.logPanel.SelectedChange()
+			if change == nil {
+				return a, nil, true
+			}
+			revisions, err := a.repo.Log()
+			if err != nil {
+				return a, nil, true
+			}
+			nav := app.NewNavigation(a.repoPath, revisions)
+			currentBookmarkName := nav.FindCurrentBookmark()
+			if currentBookmarkName == "" {
+				// No current bookmark - silent no-op
+				return a, nil, true
+			}
+			// Find the full revision ID for this change
+			targetRev, found := nav.FindByChangeID(change.ChangeID)
+			if !found || targetRev == nil {
+				return a, nil, true
+			}
+			// Reuse existing bookmark set machinery
+			a.bookmarkSetName = currentBookmarkName
+			a.executeBookmarkSet(targetRev.ID)
+			return a, nil, true
 		}
 	}
 
