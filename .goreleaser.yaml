@@ -4,7 +4,7 @@ version: 2
 before:
   hooks:
     # Build Rust library before Go compilation
-    - cd rust && cargo build --release
+    - sh -c "cd rust && cargo build --release"
 
 builds:
   - id: jjazy
