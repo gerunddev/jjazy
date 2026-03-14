@@ -47,6 +47,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Build Rust library
+        run: cd rust && cargo build --release
+
       - name: Run Rust tests
         run: cd rust && cargo test
 
