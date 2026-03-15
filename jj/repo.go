@@ -166,6 +166,14 @@ func (r *Repo) WorkspaceForget(workspaceName string) error {
 	return ffi.WorkspaceForget(r.ptr, workspaceName)
 }
 
+// GitPush pushes a bookmark to the "origin" remote via git.
+// If allowBackwards is true, allows force-push even if non-fast-forward.
+func (r *Repo) GitPush(bookmarkName string, allowBackwards bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return ffi.GitPush(r.ptr, bookmarkName, allowBackwards)
+}
+
 // Close closes the repository and frees associated resources.
 func (r *Repo) Close() {
 	r.mu.Lock()

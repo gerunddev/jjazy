@@ -38,6 +38,9 @@ type KeyMap struct {
 	Abandon    key.Binding
 	SquashChange key.Binding
 	SetCurrentBookmark key.Binding
+
+	// Bookmarks panel actions
+	GitPushBookmark key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings
@@ -147,6 +150,11 @@ func DefaultKeyMap() KeyMap {
 		SetCurrentBookmark: key.NewBinding(
 			key.WithKeys("b"),
 			key.WithHelp("b", "set current bookmark"),
+		),
+
+		GitPushBookmark: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "push bookmark"),
 		),
 	}
 }

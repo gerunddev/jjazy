@@ -70,6 +70,9 @@ type App struct {
 	bookmarkSetName   string // Name of bookmark being set
 	bookmarkSetCursor int    // Preserved cursor position in bookmarks panel
 
+	// Git push mode state
+	gitPushBookmarkName string // Name of bookmark being pushed
+
 	// Squash mode state
 	squashMode          bool   // True when in squash mode (selecting second commit)
 	squashFirstChangeID string // Change ID of first selected commit
@@ -612,6 +615,16 @@ func (a *App) handleLogActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 				a.bookmarksPanel.SetEntered(false)
 				a.setFocus(0) // Return to log view
 				a.refreshAllPanels()
+			}
+			return a, nil, true
+		}
+	}
+
+	// Bookmark push action ('p' key in bookmarks panel when entered)
+	if a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
+		if key.Matches(msg, a.keys.GitPushBookmark) {
+			if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
+				a.executeGitPush(bm.Name, false)
 			}
 			return a, nil, true
 		}
@@ -1308,6 +1321,24 @@ func (a *App) executeBookmarkSet(commitID string) {
 	a.refreshAllPanels()
 }
 
+// executeGitPush attempts to push the bookmark to the remote
+func (a *App) executeGitPush(bookmarkName string, allowBackwards bool) {
+	a.gitPushBookmarkName = bookmarkName
+	err := a.repo.GitPush(bookmarkName, allowBackwards)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "backwards") {
+			a.showConfirmDialog("Force Push?", "Remote has diverged. Push anyway (force)?", "git_push_backwards")
+			return
+		}
+		a.showInfoDialog("Push Error", errMsg)
+		a.gitPushBookmarkName = ""
+		return
+	}
+	a.gitPushBookmarkName = ""
+	a.refreshAllPanels()
+}
+
 // showConfirmDialog displays a confirmation dialog
 func (a *App) showConfirmDialog(title, message, action string) {
 	a.confirmOverlay = floating.NewConfirmOverlay(title, message)
@@ -1318,6 +1349,21 @@ func (a *App) showConfirmDialog(title, message, action string) {
 
 // handleConfirmAction processes confirmed action
 func (a *App) handleConfirmAction() {
+	// Handle git push backwards confirmation
+	if a.confirmAction == "git_push_backwards" {
+		if a.gitPushBookmarkName != "" {
+			err := a.repo.GitPush(a.gitPushBookmarkName, true)
+			if err != nil {
+				a.showInfoDialog("Push Error", err.Error())
+			} else {
+				a.refreshAllPanels()
+			}
+			a.gitPushBookmarkName = ""
+		}
+		return
+	}
+
+	// Handle bookmark set mode
 	if a.bookmarkSetName == "" {
 		return
 	}

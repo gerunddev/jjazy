@@ -376,3 +376,32 @@ func WorkspaceForget(repo RepoPtr, workspaceName string) error {
 	done(nil)
 	return nil
 }
+
+// GitPush pushes a bookmark to the "origin" remote
+func GitPush(repo RepoPtr, bookmarkName string, allowBackwards bool) error {
+	done := logOp("GitPush",
+		"bookmarkName", truncate(bookmarkName, 50),
+		"allowBackwards", allowBackwards,
+	)
+
+	cname := C.CString(bookmarkName)
+	defer C.free(unsafe.Pointer(cname))
+
+	allowBackwardsInt := C.int(0)
+	if allowBackwards {
+		allowBackwardsInt = C.int(1)
+	}
+
+	result := C.jj_git_push((*C.RepoHandle)(repo), cname, allowBackwardsInt)
+	defer C.jj_free_result(result)
+
+	if result.error != nil {
+		errMsg := C.GoString(result.error)
+		err := errors.New(errMsg)
+		done(err)
+		return err
+	}
+
+	done(nil)
+	return nil
+}

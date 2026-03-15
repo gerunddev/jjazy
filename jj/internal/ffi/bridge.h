@@ -88,4 +88,9 @@ JjResult jj_workspace_add(RepoHandle* handle, const char* destination_path, cons
 // Returns JjResult with empty success or error message
 JjResult jj_workspace_forget(RepoHandle* handle, const char* workspace_name);
 
+// Push a bookmark to the "origin" remote via git
+// allow_backwards: if non-zero, force-push even if non-fast-forward
+// Returns JjResult with empty data on success or error message on failure
+JjResult jj_git_push(RepoHandle* handle, const char* bookmark_name, int allow_backwards);
+
 #endif // JJ_BRIDGE_H

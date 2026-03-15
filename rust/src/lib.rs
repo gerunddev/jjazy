@@ -1815,3 +1815,80 @@ pub extern "C" fn jj_set_bookmark(
         Err(e) => JjResult::error(format!("Failed to commit transaction: {}", e)),
     }
 }
+
+/// Push a bookmark to the "origin" remote via git.
+///
+/// Parameters:
+/// - handle: repository handle
+/// - bookmark_name: name of the bookmark to push
+/// - allow_backwards: if non-zero, force-push even if non-fast-forward
+///
+/// Returns JjResult with empty success or error message on failure.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned by `jj_open_repo`, or NULL (returns error).
+/// - `bookmark_name` must be a valid, null-terminated C string or NULL (returns error).
+#[no_mangle]
+pub extern "C" fn jj_git_push(
+    handle: *mut RepoHandle,
+    bookmark_name: *const c_char,
+    allow_backwards: i32,
+) -> JjResult {
+    use std::process::Command;
+
+    let handle = unsafe {
+        if handle.is_null() {
+            return JjResult::error("null repo handle".to_string());
+        }
+        &mut *handle
+    };
+
+    let bm_name = unsafe {
+        if bookmark_name.is_null() {
+            return JjResult::error("null bookmark name".to_string());
+        }
+        match CStr::from_ptr(bookmark_name).to_str() {
+            Ok(s) => s,
+            Err(e) => return JjResult::error(format!("invalid bookmark name UTF-8: {}", e)),
+        }
+    };
+
+    let allow_backwards_bool = allow_backwards != 0;
+
+    // Call git push via shell command in the repo root directory
+    let repo_root = Path::new(&handle.repo_root);
+
+    let mut cmd = Command::new("git");
+    cmd.current_dir(repo_root);
+    cmd.arg("push");
+
+    if allow_backwards_bool {
+        cmd.arg("--force-with-lease");
+    }
+
+    cmd.arg("origin");
+    cmd.arg(format!("{}:{}", bm_name, bm_name));
+
+    match cmd.output() {
+        Ok(output) => {
+            if output.status.success() {
+                // Successfully pushed
+                JjResult::success("".to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let error_msg = if !stderr.is_empty() { stderr.to_string() } else { stdout.to_string() };
+
+                // Check if it's a non-fast-forward error
+                if error_msg.contains("non-fast-forward") || error_msg.contains("rejected") || error_msg.contains("would clobber") {
+                    return JjResult::error("Push would move remote bookmark backwards (use allow_backwards flag)".to_string());
+                }
+                JjResult::error(format!("Failed to push: {}", error_msg.trim()))
+            }
+        }
+        Err(e) => {
+            JjResult::error(format!("Failed to execute git push: {}", e))
+        }
+    }
+}
