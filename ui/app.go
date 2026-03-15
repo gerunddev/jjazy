@@ -598,6 +598,23 @@ func (a *App) handleLogActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			a.bookmarkSetName = currentBookmarkName
 			a.executeBookmarkSet(targetRev.ID)
 			return a, nil, true
+
+		case msg.String() == "p":
+			// Push the current bookmark
+			revisions, err := a.repo.Log()
+			if err != nil {
+				a.showInfoDialog("Error", "Failed to get log: "+err.Error())
+				return a, nil, true
+			}
+			nav := app.NewNavigation(a.repoPath, revisions)
+			currentBookmarkName := nav.FindCurrentBookmark()
+			if currentBookmarkName == "" {
+				// No current bookmark - show error
+				a.showInfoDialog("No Current Bookmark", "Working copy is not on a bookmark. Switch to a bookmark first or set one with 'b' key.")
+				return a, nil, true
+			}
+			a.executeGitPush(currentBookmarkName, false)
+			return a, nil, true
 		}
 	}
 
@@ -622,7 +639,7 @@ func (a *App) handleLogActions(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	// Bookmark push action ('p' key in bookmarks panel when entered)
 	if a.focusedPanel == 2 && a.bookmarksPanel.IsEntered() {
-		if key.Matches(msg, a.keys.GitPushBookmark) {
+		if msg.String() == "p" {
 			if bm := a.bookmarksPanel.SelectedBookmark(); bm != nil {
 				a.executeGitPush(bm.Name, false)
 			}
